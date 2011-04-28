@@ -1,3 +1,7 @@
+2011-04-27 Kathryn Mohror <mohror1@llnl.gov>
+	* configure.ac : Added AM_PROG_CC_C_O to configure.ac because of errors during
+	  autoreconf.
+
 2011-04-13 Adam Moody <moody20@llnl.gov>
 
 	* scr.c : Added scr_summary_read_v4_to_v5 to read old scr_summary.txt files and
