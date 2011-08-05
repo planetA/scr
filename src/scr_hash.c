@@ -315,6 +315,8 @@ scr_hash* scr_hash_setf(scr_hash* hash, scr_hash* hash_value, const char* format
       size = snprintf(key, sizeof(key), token, va_arg(args, char*));
     } else if (strcmp(token, "%d")  == 0) {
       size = snprintf(key, sizeof(key), token, va_arg(args, int));
+    } else if (strcmp(token, "%lld") == 0) {
+      size = snprintf(key, sizeof(key), token, va_arg(args, long long));
     } else if (strcmp(token, "%lu") == 0) {
       size = snprintf(key, sizeof(key), token, va_arg(args, unsigned long));
     } else if (strcmp(token, "%#x") == 0) {
@@ -372,7 +374,7 @@ scr_hash* scr_hash_setf(scr_hash* hash, scr_hash* hash_value, const char* format
 }
 
 /* return hash associated with list of keys */
-scr_hash* scr_hash_getf(scr_hash* hash, const char* format, ...)
+scr_hash* scr_hash_getf(const scr_hash* hash, const char* format, ...)
 {
   /* check that we have a hash */
   if (hash == NULL) {
@@ -429,6 +431,8 @@ scr_hash* scr_hash_getf(scr_hash* hash, const char* format, ...)
       size = snprintf(key, sizeof(key), token, va_arg(args, char*));
     } else if (strcmp(token, "%d")  == 0) {
       size = snprintf(key, sizeof(key), token, va_arg(args, int));
+    } else if (strcmp(token, "%lld") == 0) {
+      size = snprintf(key, sizeof(key), token, va_arg(args, long long));
     } else if (strcmp(token, "%lu") == 0) {
       size = snprintf(key, sizeof(key), token, va_arg(args, unsigned long));
     } else if (strcmp(token, "%#x") == 0) {
@@ -587,9 +591,9 @@ int scr_hash_sort_int(scr_hash* hash, int direction)
 
   /* sort the elements by key */
   int (*fn)(const void* a, const void* b) = NULL;
-  fn = &scr_hash_cmp_fn_str_asc;
+  fn = &scr_hash_cmp_fn_int_asc;
   if (direction == SCR_HASH_SORT_DESCENDING) {
-    fn = &scr_hash_cmp_fn_str_desc;
+    fn = &scr_hash_cmp_fn_int_desc;
   }
   qsort(list, count, sizeof(struct sort_elem), fn);
 
@@ -606,6 +610,49 @@ int scr_hash_sort_int(scr_hash* hash, int direction)
     free(list);
     list = NULL;
   }
+
+  return SCR_SUCCESS;
+}
+
+/* given a hash, return a list of all keys converted to ints */
+/* caller must free list when done with it */
+int scr_hash_list_int(const scr_hash* hash, int* n, int** v)
+{
+  /* assume there aren't any keys */
+  *n = 0;
+  *v = NULL;
+
+  /* count the number of keys */
+  int count = scr_hash_size(hash);
+  if (count == 0) {
+    return SCR_SUCCESS;
+  }
+
+  /* now allocate array of ints to save keys */
+  int* list = (int*) malloc(count * sizeof(int));
+  if (list == NULL) {
+    scr_err("Failed to allocate integer list at %s:%d",
+            __FILE__, __LINE__);
+    exit(1);
+  }
+
+  /* record key values in array */
+  count = 0;
+  scr_hash_elem* elem;
+  for (elem = scr_hash_elem_first(hash);
+       elem != NULL;
+       elem = scr_hash_elem_next(elem))
+  {
+    int key = scr_hash_elem_key_int(elem);
+    list[count] = key;
+    count++;
+  }
+
+  /* sort the keys */
+  qsort(list, count, sizeof(int), &scr_hash_cmp_fn_int_asc);
+
+  *n = count;
+  *v = list;
 
   return SCR_SUCCESS;
 }
@@ -1040,28 +1087,13 @@ ssize_t scr_hash_write_fd(const char* file, int fd, const scr_hash* hash)
 
   size_t size = 0;
 
-  /* write the SCR file magic number */
-  uint32_t magic = SCR_FILE_MAGIC;
-  uint32_t magic_network = scr_hton32(magic);
-  memcpy(buf + size, &magic_network, sizeof(uint32_t));
-  size += sizeof(uint32_t);
-
-  /* write the file type */
-  uint16_t type = SCR_FILE_TYPE_HASH;
-  uint16_t type_network = scr_hton16(type);
-  memcpy(buf + size, &type_network, sizeof(uint16_t));
-  size += sizeof(uint16_t);
-
-  /* write the version number */
-  uint16_t version = SCR_FILE_VERSION_HASH_1;
-  uint16_t version_network = scr_hton16(version);
-  memcpy(buf + size, &version_network, sizeof(uint16_t));
-  size += sizeof(uint16_t);
+  /* write the SCR file magic number, the hash file id, and the version number */
+  scr_pack_uint32_t(buf, filesize, &size, (uint32_t) SCR_FILE_MAGIC);
+  scr_pack_uint16_t(buf, filesize, &size, (uint16_t) SCR_FILE_TYPE_HASH);
+  scr_pack_uint16_t(buf, filesize, &size, (uint16_t) SCR_FILE_VERSION_HASH_1);
 
   /* write the file size (includes header, data, and trailing crc) */
-  uint64_t filesize_network = scr_hton64((uint64_t) filesize);
-  memcpy(buf + size, &filesize_network, sizeof(uint64_t));
-  size += sizeof(uint64_t);
+  scr_pack_uint64_t(buf, filesize, &size, (uint64_t) filesize);
 
   /* set the flags */
   uint32_t flags = 0x0;
@@ -1069,9 +1101,7 @@ ssize_t scr_hash_write_fd(const char* file, int fd, const scr_hash* hash)
     /* indicate that the crc32 is set */
     flags |= SCR_FILE_FLAGS_CRC32;
   }
-  uint32_t flags_network = scr_hton32(flags);
-  memcpy(buf + size, &flags_network, sizeof(uint32_t));
-  size += sizeof(uint32_t);
+  scr_pack_uint32_t(buf, filesize, &size, (uint32_t) flags);
 
   /* pack the hash into the buffer */
   size += scr_hash_pack(buf + size, hash);
@@ -1083,9 +1113,7 @@ ssize_t scr_hash_write_fd(const char* file, int fd, const scr_hash* hash)
     crc = crc32(crc, (const Bytef*) buf, (uInt) size);
 
     /* write the crc to the buffer */
-    uint32_t crc_network = scr_hton32((uint32_t) crc);
-    memcpy(buf + size, &crc_network, sizeof(uint32_t));
-    size += sizeof(uint32_t);
+    scr_pack_uint32_t(buf, filesize, &size, (uint32_t) crc);
   }
 
   /* write the hash to the file */
@@ -1164,23 +1192,12 @@ ssize_t scr_hash_read_fd(const char* file, int fd, scr_hash* hash)
     return -1;
   }
 
-  /* read in the magic number */
-  uint32_t magic_network, magic;
-  memcpy(&magic_network, header + size, sizeof(uint32_t));
-  magic = scr_ntoh32(magic_network);
-  size += sizeof(uint32_t);
-
-  /* read in the file type */
-  uint16_t type_network, type;
-  memcpy(&type_network, header + size, sizeof(uint16_t));
-  type = scr_ntoh16(type_network);
-  size += sizeof(uint16_t);
-
-  /* read in the file version */
-  uint16_t version_network, version;
-  memcpy(&version_network, header + size, sizeof(uint16_t));
-  version = scr_ntoh16(version_network);
-  size += sizeof(uint16_t);
+  /* read in the magic number, the type, and the version number */
+  uint32_t magic;
+  uint16_t type, version;
+  scr_unpack_uint32_t(header, sizeof(header), &size, &magic);
+  scr_unpack_uint16_t(header, sizeof(header), &size, &type);
+  scr_unpack_uint16_t(header, sizeof(header), &size, &version);
 
   /* check that the magic number matches */
   /* check that the file type is something we understand */
@@ -1197,16 +1214,12 @@ ssize_t scr_hash_read_fd(const char* file, int fd, scr_hash* hash)
   }
 
   /* read the file size */
-  uint64_t filesize_network, filesize;
-  memcpy(&filesize_network, header + size, sizeof(uint64_t));
-  filesize = scr_ntoh64(filesize_network);
-  size += sizeof(uint64_t);
+  uint64_t filesize;
+  scr_unpack_uint64_t(header, sizeof(header), &size, &filesize);
 
   /* read the flags field (32 bits) */
-  uint32_t flags_network, flags;
-  memcpy(&flags_network, header + size, sizeof(uint32_t));
-  flags = scr_ntoh32(flags_network);
-  size += sizeof(uint32_t);
+  uint32_t flags;
+  scr_unpack_uint32_t(header, sizeof(header), &size, &flags);
 
   /* check that the filesize is valid (positive) */
   if (filesize <= 0) {
@@ -1519,11 +1532,11 @@ Pretty print for TotalView debug window
 
 #include "tv_data_display.h"
 
-static int TV_display_type(const scr_hash* hash)
+static int TV_ttf_display_type(const scr_hash* hash)
 {
   if (hash == NULL) {
     /* empty hash, nothing to display here */
-    return TV_format_OK;
+    return TV_ttf_format_ok;
   }
 
   scr_hash_elem* elem = NULL;
@@ -1544,7 +1557,7 @@ static int TV_display_type(const scr_hash* hash)
 
       if (size == 0) {
         /* if the hash is empty, stop at the key */
-        TV_add_row("value", TV_ascii_string_type, key);
+        TV_ttf_add_row("value", TV_ttf_type_ascii_string, key);
       } else if (size == 1) {
         /* my hash has one value, this may be a key/value pair */
         char* value = scr_hash_elem_get_first_val(hash, key);
@@ -1552,22 +1565,22 @@ static int TV_display_type(const scr_hash* hash)
         if (h2 == NULL || scr_hash_size(h2) == 0) {
           /* my hash has one value, and the hash for that one value is empty,
            * so print this as a key/value pair */
-          TV_add_row(key, TV_ascii_string_type, value);
+          TV_ttf_add_row(key, TV_ttf_type_ascii_string, value);
         } else {
           /* my hash has one value, but the hash for that one value is non-empty.
            * so we need to recurse into hash */
-          TV_add_row(key, "scr_hash", h);
+          TV_ttf_add_row(key, "scr_hash", h);
         }
       } else {
         /* the hash for this key contains multiple elements,
          * so this is not a key/value pair, which means we need to recurse into hash */
-        TV_add_row(key, "scr_hash", h);
+        TV_ttf_add_row(key, "scr_hash", h);
       }
     } else {
       /* this key has a NULL hash, so stop at the key */
-      TV_add_row("value", TV_ascii_string_type, key);
+      TV_ttf_add_row("value", TV_ttf_type_ascii_string, key);
     }
   }
 
-  return TV_format_OK;
+  return TV_ttf_format_ok;
 }
