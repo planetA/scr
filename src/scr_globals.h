@@ -76,6 +76,7 @@
 #include "scr_reddesc_recover.h"
 #include "scr_summary.h"
 #include "scr_flush_file_mpi.h"
+#include "scr_balance.h"
 #include "scr_cache.h"
 #include "scr_cache_rebuild.h"
 #include "scr_fetch.h"
@@ -196,4 +197,5 @@ extern scr_storedesc* scr_storedesc_cntl; /* store descriptor struct for control
 extern int scr_nreddescs;         /* number of redundancy descriptors in scr_reddescs list */
 extern scr_reddesc* scr_reddescs; /* pointer to list of redundancy descriptors */
 
+extern int scr_balancer;
 #endif

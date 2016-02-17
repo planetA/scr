@@ -138,3 +138,5 @@ scr_storedesc* scr_storedesc_cntl = NULL; /* store descriptor struct for control
 
 int scr_nreddescs = 0;            /* number of redundancy descriptors in scr_reddescs list */
 scr_reddesc* scr_reddescs = NULL; /* pointer to list of redundancy descriptors */
+
+int scr_balancer = 0;

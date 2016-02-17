@@ -475,6 +475,11 @@ static int scr_get_params()
     }
   }
 
+  /* whether to activate checkpoint-migrate-restart */
+  if ((value = scr_param_get("SCR_BALANCER")) != NULL) {
+    scr_balancer = atoi(value);
+  }
+
   /* whether to distribute files in filemap to ranks */
   if ((value = scr_param_get("SCR_DISTRIBUTE")) != NULL) {
     scr_distribute = atoi(value);
@@ -1057,6 +1062,14 @@ int SCR_Init()
     rc = SCR_SUCCESS;
   }
 
+  if (scr_balancer) {
+    rc = scr_balance_init();
+  }
+
+  if (rc != SCR_SUCCESS) {
+    /* TODO for Maksym: Do something */
+  }
+
   /* sync everyone before returning to ensure that subsequent
    * calls to SCR functions are valid */
   MPI_Barrier(scr_comm_world);
@@ -1124,6 +1137,10 @@ int SCR_Finalize()
   /* disconnect from database */
   if (scr_my_rank_world == 0 && scr_log_enable) {
     scr_log_finalize();
+  }
+
+  if (scr_balancer) {
+    scr_balance_finalize();
   }
 
   /* TODO MEMFS: unmount storage */
@@ -1270,6 +1287,12 @@ int SCR_Need_checkpoint(int* flag)
     {
       *flag = 1;
     }
+  }
+
+  if ((scr_balancer && !*flag) ||
+      (scr_balancer && *flag))
+  {
+    scr_balance_need_checkpoint(flag);
   }
 
   /* rank 0 broadcasts the decision */
