@@ -210,6 +210,13 @@ while [ 1 ] ; do
   # log stats on the latest run attempt
   $bindir/scr_log_event -T "RUN ENDED" -N "Job=$jobid, Run=$attempts" -S $end_secs -L $run_secs
 
+  # Did we stop because of migration?
+  $bindir/scr_migration --dir $prefix;
+  if [ $? == 0 ] ; then
+    echo "$prog: Migration condition detected, restarting run."
+    continue
+  fi
+
   # any retry attempts left?
   if [ $runs -gt -1 ] ; then
     runs=$(($runs - 1))

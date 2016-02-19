@@ -198,4 +198,5 @@ extern int scr_nreddescs;         /* number of redundancy descriptors in scr_red
 extern scr_reddesc* scr_reddescs; /* pointer to list of redundancy descriptors */
 
 extern int scr_balancer;
+extern int scr_balancer_do_migrate;
 #endif

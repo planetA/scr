@@ -63,6 +63,12 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
      * checkpoint counter, writes it out, and unlocks it */
     scr_halt_sync_and_decrement(scr_halt_file, scr_halt_hash, decrement);
 
+    if (scr_balancer_do_migrate) {
+      scr_dbg(0, "Job exiting: Balancer made a decision to stop the job");
+      scr_halt("MIGRATION");
+      need_to_halt = 1;
+    }
+
     /* set halt seconds to value found in our halt hash */
     int halt_seconds;
     if (scr_hash_util_get_int(scr_halt_hash, SCR_HALT_KEY_SECONDS, &halt_seconds) != SCR_SUCCESS) {

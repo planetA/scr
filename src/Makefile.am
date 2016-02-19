@@ -35,6 +35,7 @@ noinst_HEADERS = \
 	scr_reddesc_apply.h \
 	scr_reddesc_recover.h \
 	scr_summary.h \
+	scr_balance.h \
 	scr_cache.h \
 	scr_cache_rebuild.h \
 	scr_fetch.h \
@@ -116,6 +117,7 @@ libscr_la_SOURCES = \
 	scr_reddesc_apply.c \
 	scr_reddesc_recover.c \
 	scr_summary.c \
+	scr_balance.c \
 	scr_cache.c \
 	scr_cache_rebuild.c \
 	scr_fetch.c \
@@ -147,6 +149,7 @@ bin_PROGRAMS = \
 	scr_flush_file \
 	scr_nodes_file \
 	scr_retries_halt \
+	scr_migration \
 	scr_crc32 \
 	scr_print_hash_file \
 	scr_log_event \
@@ -181,6 +184,10 @@ scr_nodes_file_CFLAGS = $(AM_CFLAGS)
 scr_retries_halt_SOURCES = scr_retries_halt.c
 scr_retries_halt_LDADD = $(LIBZ_LDFLAGS) libscr_cmds.la
 scr_retries_halt_CFLAGS = $(AM_CFLAGS)
+
+scr_migration_SOURCES = scr_migration.c
+scr_migration_LDADD = $(LIBZ_LDFLAGS) libscr_cmds.la
+scr_migration_CFLAGS = $(AM_CFLAGS)
 
 scr_crc32_SOURCES = scr_crc32.c
 scr_crc32_LDADD = $(LIBZ_LDFLAGS) libscr_cmds.la

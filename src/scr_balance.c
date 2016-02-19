@@ -18,7 +18,6 @@
 static struct timespec last_step;
 static struct timeval last_timeval;
 static MPI_Datatype MPI_WORK_ITEM = 0;
-static int worth_to_migrate = 0;
 
 /*
  * Comparison function for qsort to sort doubles in descending order.
@@ -161,9 +160,9 @@ static void propose_schedule(double time)
     scr_err("I predict imbalance of %f", imbalance);
 
     if (imbalance > 1.25)
-      worth_to_migrate = 1;
+      scr_balancer_do_migrate = 1;
     else
-      worth_to_migrate = 0;
+      scr_balancer_do_migrate = 1;
 
     scr_free(chunks);
   }
@@ -260,3 +259,8 @@ int scr_balance_need_checkpoint(int *flag)
   last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
   last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
 }
+
+int scr_balance_complete_checkpoint(int valid)
+{
+}
+

@@ -140,3 +140,4 @@ int scr_nreddescs = 0;            /* number of redundancy descriptors in scr_red
 scr_reddesc* scr_reddescs = NULL; /* pointer to list of redundancy descriptors */
 
 int scr_balancer = 0;
+int scr_balancer_do_migrate = 0;
