@@ -109,6 +109,7 @@ extern char* scr_transfer_file;
 extern scr_path* scr_halt_file;
 extern scr_path* scr_flush_file;
 extern scr_path* scr_nodes_file;
+extern scr_path* scr_balancer_file;
 
 extern scr_filemap* scr_map;    /* memory cache of filemap contents */
 extern scr_hash* scr_halt_hash; /* memory cache of halt file contents */

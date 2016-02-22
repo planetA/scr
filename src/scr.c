@@ -924,6 +924,9 @@ int SCR_Init()
   scr_nodes_file = scr_path_from_str(scr_prefix_scr);
   scr_path_append_str(scr_nodes_file, "nodes.scr");
 
+  scr_balancer_file = scr_path_from_str(scr_prefix_scr);
+  scr_path_append_str(scr_balancer_file, "balancer.scr");
+
   /* build the file names using the control directory prefix */
   scr_map_file = scr_path_from_str(scr_cntl_prefix);
   scr_path_append_strf(scr_map_file, "filemap_%d.scrinfo", scr_storedesc_cntl->rank);

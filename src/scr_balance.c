@@ -96,8 +96,77 @@ static int diff_time(struct timespec *x, struct timespec *y, struct timespec *re
     return x->tv_sec < y->tv_sec;
 }
 
+#define HOSTNAME_MAX 20
 
-static void propose_schedule(double time)
+int dump_schedule(struct work_item *chunks, int processes, int num_nodes)
+{
+  int rank_node;
+  MPI_Comm_rank(scr_comm_node, &rank_node);
+
+  if (rank_node == 0) {
+    int rank_across;
+
+    MPI_Comm_rank(scr_comm_node_across, &rank_across);
+
+    char *nodenames = NULL;
+    if (rank_across == 0) {
+      nodenames = (char *)SCR_MALLOC(num_nodes * HOSTNAME_MAX);
+      memset(nodenames, 0, num_nodes * HOSTNAME_MAX);
+    }
+
+    char my_hostname[HOSTNAME_MAX];
+    gethostname(my_hostname, HOSTNAME_MAX);
+    /* TODO for Maksym: Do I need to do this? */
+    /* For safety */
+    my_hostname[HOSTNAME_MAX-1] = '\0';
+
+    MPI_Gather(my_hostname, HOSTNAME_MAX, MPI_CHAR, nodenames, HOSTNAME_MAX, MPI_CHAR, 0,
+        scr_comm_node_across);
+
+    if (rank_across == 0) {
+      int fd = -1;
+      mode_t mode_file = scr_getmode(1, 1, 0);
+      char *file = NULL;
+
+      file = scr_path_strdup(scr_balancer_file);
+
+      fd = scr_open(file, O_WRONLY | O_CREAT, mode_file);
+      if (fd < 0) {
+        scr_err("Opening file for write: scr_open(%s) errno=%d %s @ %s:%d",
+            file, errno, strerror(errno), __FILE__, __LINE__);
+        goto cleanup;
+      }
+
+      /* acquire an exclusive file lock before reading */
+      if (scr_file_lock_write(file,fd) != SCR_SUCCESS) {
+        goto cleanup;
+      }
+
+
+      for (int i = 0; i < processes; i++) {
+        /* 2 characters for \n and 1 character for \O. Not sure if this right calculation */
+        char line[HOSTNAME_MAX+3];
+
+        snprintf(line, HOSTNAME_MAX + 3, "%s\n", &nodenames[chunks[i].node*HOSTNAME_MAX]);
+        write(fd, line, strlen(line));
+      }
+
+      /* release the file lock */
+      if (scr_file_unlock(file, fd)!= SCR_SUCCESS) {
+        goto cleanup;
+      }
+
+cleanup:
+
+      if (fd >= 0)
+        scr_close(file, fd);
+      scr_free(&nodenames);
+      scr_free(&file);
+    }
+  }
+}
+
+static void propose_schedule(double time, int num_nodes)
 {
   MPI_Status status;
   MPI_Request request;
@@ -107,7 +176,7 @@ static void propose_schedule(double time)
 
   int work_item_size;
   if (scr_my_rank_world == 0) {
-    chunks = SCR_MALLOC(scr_ranks_world * sizeof(*chunks));
+    chunks = (struct work_item*)SCR_MALLOC(scr_ranks_world * sizeof(*chunks));
   }
 
   my_item.work = time;
@@ -122,11 +191,9 @@ static void propose_schedule(double time)
   //MPI_Igather(&my_item, 1, MPI_WORK_ITEM, chunks, 1, MPI_WORK_ITEM, 0,
   //    scr_comm_world, &request);
 
-  int nodes;
   if (scr_my_rank_world == 0) {
-    MPI_Comm_size(scr_comm_node_across, &nodes);
-    schedule = SCR_MALLOC(nodes * sizeof(*schedule));
-    memset(schedule, 0, nodes * sizeof(*schedule));
+    schedule = SCR_MALLOC(num_nodes * sizeof(*schedule));
+    memset(schedule, 0, num_nodes * sizeof(*schedule));
   }
 
   //MPI_Wait(&request, &status);
@@ -138,7 +205,7 @@ static void propose_schedule(double time)
 
     for (int i = 0; i < scr_ranks_world; i++) {
       int min_node = 0;
-      for (int j = 1; j < nodes; j++) {
+      for (int j = 1; j < num_nodes; j++) {
         if (schedule[j] < schedule[min_node]) {
           min_node = j;
         }
@@ -149,13 +216,13 @@ static void propose_schedule(double time)
 
     double max = 0.;
     double avg = 0.;
-    for (int i = 0; i < nodes; i ++) {
+    for (int i = 0; i < num_nodes; i ++) {
       if (schedule[i] > max) {
         max = schedule[i];
       }
       avg += schedule[i];
     }
-    avg /= nodes;
+    avg /= num_nodes;
     double imbalance = max / avg;
     scr_err("I predict imbalance of %f", imbalance);
 
@@ -164,7 +231,12 @@ static void propose_schedule(double time)
     else
       scr_balancer_do_migrate = 1;
 
-    scr_free(chunks);
+  }
+
+  dump_schedule(chunks, scr_ranks_world, num_nodes);
+
+  if (scr_my_rank_world == 0) {
+    scr_free(&chunks);
   }
 }
 
@@ -177,29 +249,31 @@ static double calculate_imbalance(double time)
   MPI_Comm_rank(scr_comm_node, &rank_node);
   MPI_Reduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, 0, scr_comm_node);
 
+  int ranks_across;
+  MPI_Comm_size(scr_comm_node_across, &ranks_across);
+
+  int num_nodes;
+  MPI_Allreduce(&ranks_across, &num_nodes, 1, MPI_INT, MPI_MAX, scr_comm_world);
+
   if (rank_node == 0) {
 
-    int nodes;
     int num_req = 0;
     MPI_Status status[2];
     MPI_Request request[2];
 
-    MPI_Comm_size(scr_comm_node_across, &nodes);
     MPI_Ireduce(&sum, &max, 1, MPI_DOUBLE, MPI_MAX, 0, scr_comm_node_across, &request[num_req++]);
     MPI_Ireduce(&sum, &avg, 1, MPI_DOUBLE, MPI_SUM, 0, scr_comm_node_across, &request[num_req++]);
     MPI_Waitall(num_req, request, status);
 
-    avg /= nodes;
+    avg /= num_nodes;
 
     imbalance = max / avg;
-    int node_id;
-    MPI_Comm_rank(scr_comm_node_across, &node_id);
    // scr_err("I'm leader of node %d and I my sum is %f", node_id, sum);
     if (scr_my_rank_world == 0) {
       scr_err("I see imbalance of %f", max/avg);
     }
   }
-  propose_schedule(time);
+  propose_schedule(time, num_nodes);
   return imbalance;
 }
 

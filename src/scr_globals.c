@@ -51,6 +51,7 @@ char* scr_transfer_file   = NULL;
 scr_path* scr_halt_file  = NULL;
 scr_path* scr_flush_file = NULL;
 scr_path* scr_nodes_file = NULL;
+scr_path* scr_balancer_file = NULL;
 
 scr_filemap* scr_map = NULL;    /* memory cache of filemap contents */
 scr_hash* scr_halt_hash = NULL; /* memory cache of halt file contents */
