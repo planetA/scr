@@ -96,6 +96,8 @@ fi
 
 # enter the run loop
 down_nodes=""
+SLURM_HOSTFILE=""
+node_distribution="--distribution=block"
 attempts=0
 runs=${SCR_RETRIES:-0}
 runs=$(($runs + 1))
@@ -180,7 +182,7 @@ while [ 1 ] ; do
   $bindir/scr_log_event -T "RUN STARTED" -N "Job=$jobid, Run=$attempts" -S $start_secs
 
   if [ $use_scr_watchdog -eq 0 ]; then
-     srun --nodelist $script_node $exclude "$@"
+     srun --nodelist $script_node $exclude $node_distribution "$@"
   else
     echo "$prog: Attempting to start watchdog process."
      # need to get job step id of the srun command
@@ -214,6 +216,14 @@ while [ 1 ] ; do
   $bindir/scr_migration --dir $prefix;
   if [ $? == 0 ] ; then
     echo "$prog: Migration condition detected, restarting run."
+    if [ -f $prefix/.scr/balancer.scr ]
+    then
+      SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
+      node_distribution="--distribution=arbitrary -w $SLURM_HOSTFILE"
+    else
+      SLURM_HOSTFILE=""
+      node_distribution="--distribution=block"
+    fi
     continue
   fi
 
