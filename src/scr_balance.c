@@ -166,7 +166,7 @@ cleanup:
   }
 }
 
-static void propose_schedule(double time, int num_nodes)
+static void propose_schedule(double time, int num_nodes, double measured_imbalance)
 {
   MPI_Status status;
   MPI_Request request;
@@ -239,14 +239,17 @@ static void propose_schedule(double time, int num_nodes)
     double imbalance = max / avg;
     scr_err("I predict imbalance of %f", imbalance);
 
-    if (imbalance > 1.25)
+    if (measured_imbalance / imbalance > 1.25)
       scr_balancer_do_migrate = 1;
     else
-      scr_balancer_do_migrate = 1;
+      scr_balancer_do_migrate = 0;
 
   }
 
-  dump_schedule(chunks, scr_ranks_world, num_nodes);
+  MPI_Bcast(&scr_balancer_do_migrate, 1, MPI_INT, 0, scr_comm_world);
+
+  if (scr_balancer_do_migrate)
+    dump_schedule(chunks, scr_ranks_world, num_nodes);
 
   if (scr_my_rank_world == 0) {
     scr_free(&chunks);
@@ -286,7 +289,7 @@ static double calculate_imbalance(double time)
       scr_err("I see imbalance of %f", max/avg);
     }
   }
-  propose_schedule(time, num_nodes);
+  propose_schedule(time, num_nodes, imbalance);
   return imbalance;
 }
 
