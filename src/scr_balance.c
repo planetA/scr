@@ -203,7 +203,12 @@ static void propose_schedule(double time, int num_nodes)
   if (scr_my_rank_world == 0) {
     qsort(chunks, scr_my_rank_world, sizeof(*chunks), compare_work_item);
 
-    for (int i = 0; i < scr_ranks_world; i++) {
+#define ROUND_ROBIN 1
+#if ROUND_ROBIN
+    int cur_node = 0;
+#endif
+    for (int i = 0; i < scr_ranks_world / num_nodes; i++) {
+#if 0
       int min_node = 0;
       for (int j = 1; j < num_nodes; j++) {
         if (schedule[j] < schedule[min_node]) {
@@ -212,6 +217,14 @@ static void propose_schedule(double time, int num_nodes)
       }
       schedule[min_node] += chunks[i].work;
       chunks[i].node = min_node;
+#elif ROUND_ROBIN
+      int offset = scr_ranks_world / num_nodes;
+      for (int j = 0; j < num_nodes; j ++) {
+        schedule[cur_node] += chunks[i+j*offset].work;
+        chunks[i+j*offset].node = (cur_node + j) % num_nodes;
+      }
+      cur_node = (cur_node + 1) % num_nodes;
+#endif
     }
 
     double max = 0.;
