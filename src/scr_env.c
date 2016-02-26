@@ -25,7 +25,7 @@
 #include "yogrt.h"
 #endif /* HAVE_LIBYOGRT */
 
-#if (SCR_MACHINE_TYPE == SCR_TLCC) || (SCR_MACHINE_TYPE == SCR_CRAY_XT)
+#if (SCR_MACHINE_TYPE == SCR_TLCC) || (SCR_MACHINE_TYPE == SCR_CRAY_XT) || (SCR_MACHINE_TYPE == SCR_TAURUS)
 #include <unistd.h> /* gethostname */
 #endif
 
@@ -84,7 +84,7 @@ char* scr_env_jobid()
   char* jobid = NULL;
 
   char* value;
-  #if (SCR_MACHINE_TYPE == SCR_TLCC) || (SCR_MACHINE_TYPE == SCR_BGQ)
+  #if (SCR_MACHINE_TYPE == SCR_TLCC) || (SCR_MACHINE_TYPE == SCR_BGQ) || (SCR_MACHINE_TYPE == SCR_TAURUS)
     /* read $SLURM_JOBID environment variable for jobid string */
     if ((value = getenv("SLURM_JOBID")) != NULL) {
       jobid = strdup(value);
@@ -114,7 +114,7 @@ char* scr_env_nodename()
 {
   char* name = NULL;
 
-  #if (SCR_MACHINE_TYPE == SCR_TLCC) || (SCR_MACHINE_TYPE == SCR_CRAY_XT)
+  #if (SCR_MACHINE_TYPE == SCR_TLCC) || (SCR_MACHINE_TYPE == SCR_CRAY_XT) || (SCR_MACHINE_TYPE == SCR_TAURUS)
     /* we just use the string returned by gethostname */
     char hostname[256];
     if (gethostname(hostname, sizeof(hostname)) == 0) {
