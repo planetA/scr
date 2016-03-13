@@ -97,6 +97,13 @@ fi
 # enter the run loop
 down_nodes=""
 SLURM_HOSTFILE=""
+SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
+rm $SLURM_HOSTFILE
+for i in `scontrol show hostnames`
+do
+  echo $i:96 >> $SLURM_HOSTFILE
+done
+
 node_distribution="--distribution=block"
 attempts=0
 runs=${SCR_RETRIES:-0}
@@ -182,7 +189,10 @@ while [ 1 ] ; do
   $bindir/scr_log_event -T "RUN STARTED" -N "Job=$jobid, Run=$attempts" -S $start_secs
 
   if [ $use_scr_watchdog -eq 0 ]; then
-     srun --nodelist $script_node $exclude $node_distribution "$@"
+     export TOTALVIEW=$(which totalview)
+     #taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+     taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+     #srun --nodelist $script_node $exclude $node_distribution "$@"
   else
     echo "$prog: Attempting to start watchdog process."
      # need to get job step id of the srun command
