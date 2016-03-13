@@ -227,6 +227,17 @@ void* scr_malloc(size_t size, const char* file, int line)
   return ptr;
 }
 
+/* reallocate ptr to size bytes
+ * calls scr_abort if allocation fails */
+void* scr_realloc(void *ptr, size_t size, const char* file, int line)
+{
+  ptr = realloc(ptr, size);
+  if (ptr == NULL) {
+    scr_abort(-1, "Failed to reallocate %llu bytes @ %s:%d", file, line);
+  }
+  return ptr;
+}
+
 /* caller really passes in a void**, but we define it as just void* to avoid printing
  * a bunch of warnings */
 void scr_free(void* p)

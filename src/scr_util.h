@@ -29,6 +29,11 @@ int scr_abtoull(char* str, unsigned long long* val);
 #define SCR_MALLOC(X) scr_malloc(X, __FILE__, __LINE__);
 void* scr_malloc(size_t size, const char* file, int line);
 
+/* reallocate ptr to size bytes
+ * calls scr_abort if allocation fails */
+#define SCR_REALLOC(X) scr_realloc(X, __FILE__, __LINE__);
+void* scr_realloc(void *ptr, size_t size, const char* file, int line);
+
 /* pass address of pointer to be freed, frees memory if not NULL and sets pointer to NULL */
 void scr_free(void* ptr);
 
