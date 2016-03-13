@@ -7,6 +7,7 @@
 #include <sys/resource.h>
 #include <assert.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 #include "scr_globals.h"
 
@@ -66,6 +67,8 @@ int scr_balance_init(void)
     size = MPI_Aint_diff(size, base);
 #undef NITEMS
   }
+
+  srand(time(NULL) + scr_my_rank_world);
 }
 
 int scr_balance_finalize(void)
@@ -97,6 +100,149 @@ static int diff_time(struct timespec *x, struct timespec *y, struct timespec *re
 }
 
 #define HOSTNAME_MAX 20
+
+/*
+ * This function should exchange forward and backward migration matrices.
+ *
+ * Current implementation creates all the matrices in rank 0 and sends
+ * them around to other ranks.
+ *
+ * Forward migration matrix is a matrix of type rank -> set(rank). For
+ * each rank it returns a set of ranks which reside on a node, where
+ * the rank wants to migrate. It is used by the send part of migration
+ * operation.
+ *
+ * Backward migration matrix is a matrix of type rank ->
+ * set(rank). For each rank it return a set of ranks which want to
+ * migrate to a node, where the rank is running. It is used by the
+ * receive part of the migration operation.
+ */
+void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes)
+{
+  int *current_schedule;
+  size_t rank_vector_size = scr_ranks_world * sizeof(int);
+
+  if (scr_my_rank_world == 0) {
+    current_schedule = SCR_MALLOC(scr_ranks_world * sizeof(int));
+  }
+
+  int node_id;
+  int rank_in_node;
+
+  MPI_Comm_rank(scr_comm_node_across, &node_id);
+  MPI_Bcast(&node_id, 1, MPI_INT, 0, scr_comm_node);
+  MPI_Gather(&node_id, 1, MPI_INT,
+             current_schedule, 1, MPI_INT,
+             0, scr_comm_world);
+
+  int *forward, *forward_len;
+  int *node_to_rank, *node_to_rank_len;
+  if (scr_my_rank_world == 0) {
+    /* Generate forward matrix */
+    /* TODO for Maksym: requires huge amount of memory on large
+       scale. Do not expect to work efficiently more than with 1000
+       Processes */
+    /* Size of forward and backward matrices is simple:
+     *     N_ranks * N_ranks
+     *
+     * Explanation: At most each rank wants to migrate. At most to all
+     * ranks are on the same node.
+     */
+    forward = (int *)SCR_MALLOC(rank_vector_size);
+    forward_len = (int *)SCR_MALLOC(rank_vector_size);
+
+    /* Shows the ranks which currently run on each node */
+    node_to_rank = (int *)SCR_MALLOC(rank_vector_size * num_nodes);
+    node_to_rank_len = (int *)SCR_MALLOC(sizeof(int) * num_nodes);
+    memset(node_to_rank_len, 0, sizeof(int) * num_nodes);
+    for (int i = 0; i < scr_ranks_world; i++) {
+      int node_id = current_schedule[i];
+      assert(node_id < num_nodes);
+
+      int cur_len = node_to_rank_len[node_id]++;
+      node_to_rank[scr_ranks_world * node_id + cur_len] = i;
+    }
+
+    for (int i = 0; i < scr_ranks_world; i++) {
+      int rank_from = new_schedule[i].id;
+      int new_node = new_schedule[i].node;
+
+      assert((node_to_rank_len[new_node] > 0) &&
+             (node_to_rank_len[new_node] < scr_ranks_world));
+
+      int current_node = current_schedule[rank_from];
+      if (new_node != current_node) {
+        forward[rank_from] = new_node * scr_ranks_world;
+        forward_len[rank_from] = node_to_rank_len[new_node];
+      } else {
+        forward[rank_from] = 0;
+        forward_len[rank_from] = 0;
+      }
+    }
+  }
+
+  int my_forward_len;
+  MPI_Scatter(forward_len, 1, MPI_INT,
+              &my_forward_len, 1, MPI_INT,
+              0, scr_comm_world);
+
+  /* Add one to ensure the array is alwais allocated,
+   * because my_forward_len is allowed to be 0. */
+  int *my_forward = (int *)SCR_MALLOC((my_forward_len + 1) * sizeof(int));
+
+  MPI_Scatterv(node_to_rank, forward_len, forward, MPI_INT,
+               my_forward, my_forward_len, MPI_INT, 0, scr_comm_world);
+
+  int my_partner = -1;
+
+  if (my_forward_len)
+    my_partner= my_forward[rand() % my_forward_len];
+
+  scr_free(&my_forward);
+
+  int *backward;
+  backward = (int *)SCR_MALLOC(rank_vector_size);
+
+  MPI_Allgather(&my_partner, 1, MPI_INT,
+                backward, 1, MPI_INT,
+                scr_comm_world);
+
+  if (my_partner != -1)
+    printf("Rank %5d sends a message to %d\n", scr_my_rank_world, my_partner);
+
+  fflush(stdout);
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  int m_len = 1024;
+  char m_get[1024];
+  int gets = 0;
+  int offs = 0;
+  snprintf(m_get + offs, m_len - offs, "Rank %5d gets a message from ", scr_my_rank_world);
+  offs = strlen(m_get);
+  for (int i = 0; i < scr_ranks_world; i++) {
+    if (backward[i] == scr_my_rank_world) {
+      /* I have to get a message from i */
+      snprintf(m_get + offs, m_len - offs, " %5d", i);
+      offs = strlen(m_get);
+      gets = 1;
+    }
+  }
+
+  if (gets) {
+    snprintf(m_get + offs, m_len - offs, "\n");
+    printf(m_get);
+  }
+
+  scr_free(&backward);
+
+  if (scr_my_rank_world == 0) {
+    scr_free(&forward);
+    scr_free(&forward_len);
+    scr_free(&node_to_rank);
+    scr_free(&node_to_rank_len);
+    scr_free(current_schedule);
+  }
+}
 
 int dump_schedule(struct work_item *chunks, int processes, int num_nodes)
 {
@@ -247,6 +393,9 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   }
 
   MPI_Bcast(&scr_balancer_do_migrate, 1, MPI_INT, 0, scr_comm_world);
+
+  if (scr_balancer_do_migrate)
+    exchange_forward_and_backward(chunks, num_nodes);
 
   if (scr_balancer_do_migrate)
     dump_schedule(chunks, scr_ranks_world, num_nodes);
