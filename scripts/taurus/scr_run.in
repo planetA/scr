@@ -190,8 +190,8 @@ while [ 1 ] ; do
 
   if [ $use_scr_watchdog -eq 0 ]; then
      export TOTALVIEW=$(which totalview)
-     #taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
-     taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+     taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+     #taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
      #srun --nodelist $script_node $exclude $node_distribution "$@"
   else
     echo "$prog: Attempting to start watchdog process."
