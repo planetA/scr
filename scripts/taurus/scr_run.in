@@ -234,24 +234,6 @@ while [ 1 ] ; do
       SLURM_HOSTFILE=""
       node_distribution="--distribution=block"
     fi
-    # scavenge files from cache to parallel file system
-    $bindir/scr_postrun -p $prefix
-    if [ $? -ne 0 ] ; then
-      echo "$prog: ERROR: Command failed: scr_postrun -p $prefix"
-    fi
-
-    # prepare checkpoint cache
-    $bindir/scr_prerun -p $prefix
-    if [ $? -ne 0 ] ; then
-      echo "$prog: ERROR: Command failed: scr_prerun -p $prefix"
-      exit 1
-    fi
-
-    # start background scr_transfer processes (1 per node) if async flush is enabled
-    if [ "$SCR_FLUSH_ASYNC" == "1" ] ; then
-      nnodes=`$bindir/scr_glob_hosts -c -h $SCR_NODELIST`
-      srun -W 0 -n${nnodes} -N${nnodes} $bindir/scr_transfer $cntldir/transfer.scrinfo &
-    fi
 
     continue
   fi
