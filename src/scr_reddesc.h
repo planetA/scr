@@ -57,6 +57,13 @@ typedef struct {
   char*     rhs_hostname;   /* hostname of rhs process */
 } scr_reddesc_xor;
 
+typedef struct {
+  struct work_item *chunks; /* A schedule created by balancer */
+  int forward;              /* A rank we are sending our state to */
+  int *backward;            /* A list of ranks we are receiving their state from */
+  int backward_count;       /* Number of elements in the list */
+} scr_reddesc_migration;
+
 /*
 =========================================
 Redundancy descriptor functions
@@ -79,6 +86,13 @@ int scr_reddesc_free(
  * specified checkpoint id */
 scr_reddesc* scr_reddesc_for_checkpoint(
   int id,
+  int ndescs,
+  scr_reddesc* descs
+);
+
+/* given a checkpoint and a list of redundancy descriptors, select and
+ * return a pointer to a migration descriptor */
+scr_reddesc* scr_reddesc_for_migration(
   int ndescs,
   scr_reddesc* descs
 );

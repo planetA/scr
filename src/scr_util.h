@@ -31,7 +31,7 @@ void* scr_malloc(size_t size, const char* file, int line);
 
 /* reallocate ptr to size bytes
  * calls scr_abort if allocation fails */
-#define SCR_REALLOC(X) scr_realloc(X, __FILE__, __LINE__);
+#define SCR_REALLOC(PTR, SIZE) scr_realloc(PTR, SIZE, __FILE__, __LINE__);
 void* scr_realloc(void *ptr, size_t size, const char* file, int line);
 
 /* pass address of pointer to be freed, frees memory if not NULL and sets pointer to NULL */

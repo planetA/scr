@@ -24,11 +24,12 @@
 
 /* redundancy shemes: enum as powers of two for binary and/or operations,
  * don't change these */
-#define SCR_COPY_NULL    (0)
-#define SCR_COPY_SINGLE  (1)
-#define SCR_COPY_PARTNER (2)
-#define SCR_COPY_XOR     (4)
-#define SCR_COPY_FILE    (8)
+#define SCR_COPY_NULL      (0)
+#define SCR_COPY_SINGLE    (1)
+#define SCR_COPY_PARTNER   (2)
+#define SCR_COPY_XOR       (4)
+#define SCR_COPY_FILE      (8)
+#define SCR_COPY_MIGRATION (16)
 
 #define SCR_GROUP_NODE  "NODE"
 #define SCR_GROUP_WORLD "WORLD"

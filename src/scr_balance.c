@@ -38,12 +38,33 @@ static int compare_work_item(const void *a, const void *b) {
   return 0;
 }
 
+static scr_reddesc_migration *scr_balance_reddesc_migration()
+{
+  scr_reddesc *reddesc = scr_reddesc_for_migration(scr_nreddescs, scr_reddescs);
+  scr_reddesc_migration *state = (scr_reddesc_migration *)reddesc->copy_state;
+
+  assert(state);
+
+  return state;
+}
+
+static void scr_balance_reddesc_set_chunks(struct work_item *chunks)
+{
+  scr_reddesc_migration *state = scr_balance_reddesc_migration();
+
+  assert(state->chunks == NULL);
+
+  state->chunks = chunks;
+}
+
 #define MPI_Aint_diff(addr1, addr2) ((MPI_Aint) ((char *) (addr1) - (char *) (addr2)))
 
 int scr_balance_init(void)
 {
+  /* Init value of last time step for imbalance measurement. */
   memset(&last_step, 0, sizeof(last_step));
 
+  /* Create work item type */
   {
 #define NITEMS 3
     int blocklengths[NITEMS] = {1, 1, 1};
@@ -68,7 +89,9 @@ int scr_balance_init(void)
 #undef NITEMS
   }
 
+  /* Generate random number for matching algorithm. */
   srand(time(NULL) + scr_my_rank_world);
+  srand(1 + scr_my_rank_world);
 }
 
 int scr_balance_finalize(void)
@@ -198,7 +221,6 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
   if (my_forward_len)
     my_partner= my_forward[rand() % my_forward_len];
 
-  scr_free(&my_forward);
 
   int *backward;
   backward = (int *)SCR_MALLOC(rank_vector_size);
@@ -207,10 +229,24 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
                 backward, 1, MPI_INT,
                 scr_comm_world);
 
+  int my_backward_count = 0;
+  int *my_backward = NULL;
+
+  for (int i = 0; i < scr_ranks_world; i++) {
+    if (backward[i] == scr_my_rank_world) {
+      my_backward_count++;
+      /* I have to get a message from i */
+      my_backward = (int *)SCR_REALLOC(my_backward, my_backward_count);
+      my_backward[my_backward_count - 1] = i;
+    }
+  }
+
+#if 0
   if (my_partner != -1)
     printf("Rank %5d sends a message to %d\n", scr_my_rank_world, my_partner);
 
   fflush(stdout);
+
   MPI_Barrier(MPI_COMM_WORLD);
 
   int m_len = 1024;
@@ -219,20 +255,30 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
   int offs = 0;
   snprintf(m_get + offs, m_len - offs, "Rank %5d gets a message from ", scr_my_rank_world);
   offs = strlen(m_get);
+
   for (int i = 0; i < scr_ranks_world; i++) {
     if (backward[i] == scr_my_rank_world) {
-      /* I have to get a message from i */
       snprintf(m_get + offs, m_len - offs, " %5d", i);
       offs = strlen(m_get);
       gets = 1;
     }
   }
-
   if (gets) {
     snprintf(m_get + offs, m_len - offs, "\n");
     printf(m_get);
   }
+#endif
 
+  scr_reddesc_migration *state = scr_balance_reddesc_migration();
+
+  assert(state->backward == NULL);
+  assert(state->backward_count == 0);
+
+  state->forward = my_partner;
+  state->backward = my_backward;
+  state->backward_count = my_backward_count;
+
+  scr_free(&my_forward);
   scr_free(&backward);
 
   if (scr_my_rank_world == 0) {
@@ -240,7 +286,7 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
     scr_free(&forward_len);
     scr_free(&node_to_rank);
     scr_free(&node_to_rank_len);
-    scr_free(current_schedule);
+    scr_free(&current_schedule);
   }
 }
 
@@ -394,13 +440,12 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
 
   MPI_Bcast(&scr_balancer_do_migrate, 1, MPI_INT, 0, scr_comm_world);
 
-  if (scr_balancer_do_migrate)
+  if (scr_balancer_do_migrate) {
+    scr_balance_reddesc_set_chunks(chunks);
     exchange_forward_and_backward(chunks, num_nodes);
-
-  if (scr_balancer_do_migrate)
     dump_schedule(chunks, scr_ranks_world, num_nodes);
-
-  if (scr_my_rank_world == 0) {
+  } else if (scr_my_rank_world == 0) {
+    /* Chunks are not needed anymore */
     scr_free(&chunks);
   }
 }
@@ -447,6 +492,15 @@ int scr_balance_need_checkpoint(int *flag)
   if (!scr_balancer) {
     scr_err("Balancer is off");
     return 0;
+  }
+
+  scr_reddesc *reddesc = scr_reddesc_for_migration(scr_nreddescs, scr_reddescs);
+
+  if (!reddesc->enabled) {
+    scr_abort(-1, "SCR balancer reddesc is disabled."
+              " Migration is not possible @ %s:%d",
+              __FILE__, __LINE__);
+    return SCR_FAILURE;
   }
 
   /* bail out if not initialized -- will get bad results */
@@ -503,3 +557,6 @@ int scr_balance_complete_checkpoint(int valid)
 {
 }
 
+scr_reddesc *scr_balancer_get_reddesc()
+{
+}

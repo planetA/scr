@@ -415,6 +415,8 @@ static int scr_get_params()
       scr_copy_type = SCR_COPY_PARTNER;
     } else if (strcasecmp(value, "xor") == 0) {
       scr_copy_type = SCR_COPY_XOR;
+    } else if (strcasecmp(value, "migration") == 0) {
+      scr_copy_type = SCR_COPY_MIGRATION;
     } else {
       scr_copy_type = SCR_COPY_FILE;
     }
@@ -452,6 +454,12 @@ static int scr_get_params()
     scr_hash_util_set_str(tmp, SCR_CONFIG_KEY_TYPE,     "XOR");
     scr_hash_util_set_str(tmp, SCR_CONFIG_KEY_GROUP,    scr_group);
     scr_hash_util_set_int(tmp, SCR_CONFIG_KEY_SET_SIZE, scr_set_size);
+  } else if (scr_copy_type == SCR_COPY_MIGRATION) {
+    /* fill in info for one MIGRATION checkpoint */
+    tmp = scr_hash_set_kv(scr_reddesc_hash, SCR_CONFIG_KEY_CKPTDESC, "0");
+    scr_hash_util_set_str(tmp, SCR_CONFIG_KEY_STORE,    scr_cache_base);
+    scr_hash_util_set_str(tmp, SCR_CONFIG_KEY_TYPE,     "MIGRATION");
+    scr_hash_util_set_str(tmp, SCR_CONFIG_KEY_GROUP,    scr_group);
   } else {
     /* read info from our configuration files */
     tmp = scr_param_get_hash(SCR_CONFIG_KEY_CKPTDESC);

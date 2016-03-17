@@ -180,6 +180,24 @@ static int scr_reddesc_create_xor(scr_reddesc* d)
   return rc;
 }
 
+/* given a redundancy descriptor with all top level fields filled in
+ * allocate and fill in structure for migration specific fields in copy_state */
+static int scr_reddesc_create_migration(scr_reddesc* d)
+{
+  int rc = SCR_SUCCESS;
+
+  /* allocate a new structure to hold partner state */
+  scr_reddesc_migration* state = (scr_reddesc_migration*)
+    SCR_MALLOC(sizeof(scr_reddesc_migration));
+
+  memset(state, 0, sizeof(*state));
+
+  /* attach structure to reddesc */
+  d->copy_state = (void*) state;
+
+  return rc;
+}
+
 static int scr_reddesc_free_partner(scr_reddesc* d)
 {
   scr_reddesc_partner* state = (scr_reddesc_partner*) d->copy_state;
@@ -211,6 +229,25 @@ static int scr_reddesc_free_xor(scr_reddesc* d)
   return SCR_SUCCESS;
 }
 
+static int scr_reddesc_free_migration(scr_reddesc* d)
+{
+  scr_reddesc_migration *state = d->copy_state;
+
+  /* Either everything set, or nothing is set. */
+  assert(( state->chunks &&  state->backward) ||
+         (!state->chunks && !state->backward));
+
+  if (state->chunks)
+    scr_free(&state->chunks);
+
+  if (state->backward) {
+    assert(state->backward_count != 0);
+    scr_free(&state->backward);
+  }
+
+  return SCR_SUCCESS;
+}
+
 /* free any memory associated with the specified redundancy
  * descriptor */
 int scr_reddesc_free(scr_reddesc* d)
@@ -225,6 +262,8 @@ int scr_reddesc_free(scr_reddesc* d)
   case SCR_COPY_XOR:
     scr_reddesc_free_xor(d);
     break;
+  case SCR_COPY_MIGRATION:
+    scr_reddesc_free_migration(d);
   }
 
   /* free the strings we strdup'd */
@@ -254,13 +293,39 @@ scr_reddesc* scr_reddesc_for_checkpoint(
   int i;
   int interval = 0;
   for (i=0; i < ndescs; i++) {
-    if (descs[i].enabled &&
+    if (scr_balancer_do_migrate && descs[i].copy_type == SCR_COPY_MIGRATION) {
+      d = &descs[i];
+      break;
+    }
+
+    if (descs[i].enabled && descs[i].copy_type != SCR_COPY_MIGRATION &&
         interval < descs[i].interval &&
         id % descs[i].interval == 0)
     {
       d = &descs[i];
       interval = descs[i].interval;
     }
+  }
+
+  return d;
+}
+
+/* given a checkpoint and a list of redundancy descriptors, select and
+ * return a pointer to a migration descriptor */
+scr_reddesc* scr_reddesc_for_migration(int ndescs,
+                                       scr_reddesc* descs)
+{
+  scr_reddesc* d = NULL;
+
+  /* pick the first migration redundancy descriptor that is enabled */
+  int i;
+  for (i=0; i < ndescs; i++) {
+    if (descs[i].enabled &&
+        descs[i].copy_type == SCR_COPY_MIGRATION)
+      {
+        d = &descs[i];
+        break;
+      }
   }
 
   return d;
@@ -315,6 +380,8 @@ int scr_reddesc_store_to_hash(const scr_reddesc* d, scr_hash* hash)
   case SCR_COPY_XOR:
     scr_hash_set_kv(hash, SCR_CONFIG_KEY_TYPE, "XOR");
     break;
+  case SCR_COPY_MIGRATION:
+    scr_hash_set_kv(hash, SCR_CONFIG_KEY_TYPE, "MIGRATION");
   }
 
   /* we don't set the LHS or RHS values because they are dependent on
@@ -417,6 +484,8 @@ static int scr_reddesc_type_int_from_str(const char* value, int* type)
     copy_type = SCR_COPY_PARTNER;
   } else if (strcasecmp(value, "XOR") == 0) {
     copy_type = SCR_COPY_XOR;
+  } else if (strcasecmp(value, "MIGRATION") == 0) {
+    copy_type = SCR_COPY_MIGRATION;
   } else {
     if (scr_my_rank_world == 0) {
       scr_warn("Unknown copy type %s @ %s:%d",
@@ -606,6 +675,11 @@ int scr_reddesc_create_from_hash(
       SCR_ALLABORT(-1, "Failed to get communicator across failure group named %s", groupname);
     }
     break;
+  case SCR_COPY_MIGRATION:
+    /* The concrete communication pattern is not known in advance,
+       so just dup COMM_WORLD */
+    MPI_Comm_dup(MPI_COMM_WORLD, &d->comm);
+    break;
   }
 
   /* find our position in the checkpoint communicator */
@@ -632,6 +706,9 @@ int scr_reddesc_create_from_hash(
     break;
   case SCR_COPY_XOR:
     scr_reddesc_create_xor(d);
+    break;
+  case SCR_COPY_MIGRATION:
+    scr_reddesc_create_migration(d);
     break;
   }
 
@@ -784,6 +861,9 @@ int scr_reddesc_restore_from_hash(
     break;
   case SCR_COPY_XOR:
     scr_reddesc_create_xor(d);
+    break;
+  case SCR_COPY_MIGRATION:
+    scr_reddesc_create_migration(d);
     break;
   }
 

@@ -20,6 +20,7 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <assert.h>
 
 /* variable length args */
 #include <stdarg.h>

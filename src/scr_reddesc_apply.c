@@ -362,6 +362,193 @@ static int scr_reddesc_apply_xor(scr_filemap* map, const scr_reddesc* c, int id)
   return rc;
 }
 
+static int scr_reddesc_apply_migration_send(
+                                            scr_filemap *map,
+                                            const scr_reddesc *c,
+                                            int id,
+                                            int receiver_rank)
+{
+  int rc = SCR_SUCCESS;
+
+  /* get a list of our files */
+  int send_num = 0;
+  char** files = NULL;
+  scr_filemap_list_files(map, id, scr_my_rank_world, &send_num, &files);
+
+  /* first, determine how many files we'll be sending to our partner */
+  MPI_Send(&send_num, 1, MPI_INT, receiver_rank, 0, c->comm);
+
+  scr_hash* my_desc_hash  = scr_hash_new();
+  scr_reddesc_store_to_hash(c, my_desc_hash);
+  scr_hash_sendrecv(my_desc_hash, receiver_rank, NULL, MPI_PROC_NULL, c->comm);
+  scr_hash_delete(&my_desc_hash);
+
+
+  /* define directory to receive partner file in */
+  char* dir = scr_cache_dir_get(c, id);
+
+  /* for each potential file, step through a call to swap */
+  for (int i = 0; i < send_num; i++) {
+    /* send file name to a partner */
+    scr_swap_file_names(files[i], receiver_rank,
+                        NULL, 0, MPI_PROC_NULL, dir, c->comm);
+
+
+    /* get meta data of the file we're sending */
+    scr_meta* send_meta = scr_meta_new();
+    scr_filemap_get_meta(map, id, scr_my_rank_world, files[i], send_meta);
+
+    /* send the file to a partner */
+    if (scr_swap_files(COPY_FILES, files[i], send_meta, receiver_rank,
+                       NULL, NULL, MPI_PROC_NULL, c->comm) != SCR_SUCCESS) {
+      rc = SCR_FAILURE;
+    }
+
+    /* free meta data for this file */
+    scr_meta_delete(&send_meta);
+  }
+
+  /* free cache directory string */
+  scr_free(&dir);
+
+  /* write out the updated filemap */
+  scr_filemap_write(scr_map_file, map);
+
+  /* free our list of files */
+  scr_free(&files);
+
+  return rc;
+}
+
+static int scr_reddesc_apply_migration_receive(
+                                               scr_filemap *map,
+                                               const scr_reddesc *c,
+                                               int id,
+                                               int sender_rank)
+{
+  int rc = SCR_SUCCESS;
+
+  /* first, determine how many files we'll be receiving
+   * from our partner */
+  MPI_Status status;
+  int recv_num = 0;
+  MPI_Recv(&recv_num, 1, MPI_INT, sender_rank, 0,
+           c->comm, &status);
+
+  /* record how many files our partner will send */
+  scr_filemap_set_expected_files(map, id, sender_rank, recv_num);
+
+  /* remember which node our partner is on (needed for scavenge) */
+  scr_hash* flushdesc = scr_hash_new();
+  scr_filemap_get_flushdesc(map, id, sender_rank, flushdesc);
+  scr_hash_util_set_int(flushdesc, SCR_SCAVENGE_KEY_PRESERVE,  scr_preserve_directories);
+  scr_hash_util_set_int(flushdesc, SCR_SCAVENGE_KEY_CONTAINER, scr_use_containers);
+  scr_hash_util_set_str(flushdesc, SCR_SCAVENGE_KEY_PARTNER,   scr_my_hostname);
+  scr_filemap_set_flushdesc(map, id, sender_rank, flushdesc);
+  scr_hash_delete(&flushdesc);
+
+  /* record partner's redundancy descriptor hash */
+  scr_hash* sender_desc_hash = scr_hash_new();
+  scr_hash_sendrecv(NULL, MPI_PROC_NULL, sender_desc_hash, sender_rank, c->comm);
+  scr_filemap_set_desc(map, id, sender_rank, sender_desc_hash);
+  scr_hash_delete(&sender_desc_hash);
+
+  /* store this info in our filemap before we receive any files */
+  scr_filemap_write(scr_map_file, map);
+
+  /* define directory to receive partner file in */
+  char* dir = scr_cache_dir_get(c, id);
+
+  /* for each potential file, step through a call to swap */
+  for (int i = 0; i < recv_num; i++) {
+    /* receive file name from a partner */
+    char file_partner[SCR_MAX_FILENAME];
+    scr_swap_file_names(NULL, MPI_PROC_NULL,
+                        file_partner, sizeof(file_partner),
+                        sender_rank, dir, c->comm);
+
+    scr_filemap_add_file(map, id, sender_rank, file_partner);
+    scr_filemap_write(scr_map_file, map);
+
+    /* receive a file from a partner */
+    scr_meta* recv_meta = scr_meta_new();
+    if (scr_swap_files(COPY_FILES, NULL, NULL, MPI_PROC_NULL,
+                       file_partner, recv_meta, sender_rank,
+                       c->comm) != SCR_SUCCESS) {
+      rc = SCR_FAILURE;
+    }
+    scr_filemap_set_meta(map, id, sender_rank, file_partner, recv_meta);
+
+    /* free meta data for this file */
+    scr_meta_delete(&recv_meta);
+  }
+
+  /* free cache directory string */
+  scr_free(&dir);
+
+  /* write out the updated filemap */
+  scr_filemap_write(scr_map_file, map);
+
+  return rc;
+}
+
+static int scr_reddesc_apply_migration(
+                                       scr_filemap* map,
+                                       const scr_reddesc* c,
+                                       int id)
+{
+  int rc = SCR_SUCCESS;
+
+  /* get pointer to partner state structure */
+  scr_reddesc_migration* state = (scr_reddesc_migration*) c->copy_state;
+
+  /* Since MVAPICH2 is quite unstable library, I want to avoid
+     non-blocking communication in the beginning. So I introduce
+     following simple algorithm:
+     1. Receive from the left
+     2. Send to the right
+     3. Receive from the right
+     4. Send to the left
+
+     It is probably important that we go from the right to the left in
+     step 3.
+  */
+
+  /* Receive from the left */
+  for (int i = 0;
+       (i < state->backward_count &&
+        state->backward[i] < scr_my_rank_world);
+       i++) {
+    rc = scr_reddesc_apply_migration_receive(map, c, id,
+                                             state->backward[i]);
+  }
+
+
+
+  /* Send to the right */
+  if (state->forward != -1 && scr_my_rank_world < state->forward) {
+    rc = scr_reddesc_apply_migration_send(map, c, id,
+                                          state->forward);
+  }
+
+  /* Receive from the right */
+  for (int i = state->backward_count;
+       (i > 0 &&
+        scr_my_rank_world < state->backward[i - 1]);
+       i--) {
+    rc = scr_reddesc_apply_migration_receive(map, c, id,
+                                             state->backward[i - 1]);
+  }
+
+  /* Send to the left */
+  if (state->forward != -1 && state->forward < scr_my_rank_world) {
+    rc = scr_reddesc_apply_migration_send(map, c, id,
+                                          state->forward);
+  }
+
+  return rc;
+}
+
 /* apply redundancy scheme to file and return number of bytes copied
  * in bytes parameter */
 int scr_reddesc_apply(
@@ -395,8 +582,10 @@ int scr_reddesc_apply(
     my_bytes += (double) scr_file_size(file);
 
     /* if crc_on_copy is set, compute crc and update meta file
-     * (PARTNER does this during the copy) */
-    if (scr_crc_on_copy && c->copy_type != SCR_COPY_PARTNER) {
+     * (PARTNER and MIGRATION do this during the copy) */
+    if (scr_crc_on_copy &&
+        c->copy_type != SCR_COPY_PARTNER &&
+        c->copy_type != SCR_COPY_MIGRATION) {
       scr_compute_crc(map, id, scr_my_rank_world, file);
     }
   }
@@ -429,6 +618,9 @@ int scr_reddesc_apply(
     break;
   case SCR_COPY_XOR:
     rc = scr_reddesc_apply_xor(map, c, id);
+    break;
+  case SCR_COPY_MIGRATION:
+    rc = scr_reddesc_apply_migration(map, c, id);
     break;
   }
 

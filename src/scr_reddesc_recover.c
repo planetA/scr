@@ -564,7 +564,8 @@ int scr_reddesc_recover(scr_filemap* map, const scr_reddesc* c, int id)
   }
 
   /* for SINGLE and PARTNER, we need to apply the copy to complete the rebuild,
-   * with XOR the copy is done as part of the rebuild process */
+   * with XOR the copy is done as part of the rebuild process.
+   * We do not need to apply the copy after MIGRATION. */
   if (c->copy_type == SCR_COPY_SINGLE || c->copy_type == SCR_COPY_PARTNER) {
     double bytes_copied = 0.0;
     rc = scr_reddesc_apply(map, c, id, &bytes_copied);
