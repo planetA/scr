@@ -188,30 +188,49 @@ while [ 1 ] ; do
   start_secs=`date +%s`
   $bindir/scr_log_event -T "RUN STARTED" -N "Job=$jobid, Run=$attempts" -S $start_secs
 
-  if [ $use_scr_watchdog -eq 0 ]; then
-     export TOTALVIEW=$(which totalview)
-     taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
-     #taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
-     #srun --nodelist $script_node $exclude $node_distribution "$@"
-  else
-    echo "$prog: Attempting to start watchdog process."
-     # need to get job step id of the srun command
-     srun --nodelist $script_node $exclude "$@" &
-     srun_pid=$!;
-     sleep 10; # sleep a bit to wait for the job to show up in squeue 
-     echo "$bindir/scr_get_jobstep_id $srun_pid";
-     jobstepid=`$bindir/scr_get_jobstep_id $srun_pid`;
-     # then start the watchdog  if we got a valid job step id 
-     if [ $jobstepid != "-1" ]; then
-         $bindir/scr_watchdog --dir $prefix --jobStepId $jobstepid &
-         watchdog_pid=$!;
-         echo "$prog: Started watchdog process with PID $watchdog_pid."
-     else
-        echo "$prog: ERROR: Unable to start scr_watchdog because couldn't get job step id."
-        watchdog_pid=-1;
-     fi
-     wait $srun_pid;
-  fi
+  while [ 1 ] ; do
+    if [ $use_scr_watchdog -eq 0 ]; then
+      export TOTALVIEW=$(which totalview)
+      taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+      #taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+      #srun --nodelist $script_node $exclude $node_distribution "$@"
+    else
+      echo "$prog: Attempting to start watchdog process."
+      # need to get job step id of the srun command
+      srun --nodelist $script_node $exclude "$@" &
+      srun_pid=$!;
+      sleep 10; # sleep a bit to wait for the job to show up in squeue
+      echo "$bindir/scr_get_jobstep_id $srun_pid";
+      jobstepid=`$bindir/scr_get_jobstep_id $srun_pid`;
+      # then start the watchdog  if we got a valid job step id
+      if [ $jobstepid != "-1" ]; then
+          $bindir/scr_watchdog --dir $prefix --jobStepId $jobstepid &
+          watchdog_pid=$!;
+          echo "$prog: Started watchdog process with PID $watchdog_pid."
+      else
+         echo "$prog: ERROR: Unable to start scr_watchdog because couldn't get job step id."
+         watchdog_pid=-1;
+      fi
+      wait $srun_pid;
+    fi
+
+    # Did we stop because of migration?
+    $bindir/scr_migration --dir $prefix;
+    if [ $? == 0 ] ; then
+      echo "$prog: Migration condition detected, restarting run."
+      if [ -f $prefix/.scr/balancer.scr ]
+      then
+        SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
+        node_distribution="--distribution=arbitrary -w $SLURM_HOSTFILE"
+      else
+        SLURM_HOSTFILE=""
+        node_distribution="--distribution=block"
+      fi
+
+      continue
+    fi
+    break
+  done
 
   end_secs=`date +%s`
   run_secs=$(($end_secs - $start_secs))
@@ -221,22 +240,6 @@ while [ 1 ] ; do
 
   # log stats on the latest run attempt
   $bindir/scr_log_event -T "RUN ENDED" -N "Job=$jobid, Run=$attempts" -S $end_secs -L $run_secs
-
-  # Did we stop because of migration?
-  $bindir/scr_migration --dir $prefix;
-  if [ $? == 0 ] ; then
-    echo "$prog: Migration condition detected, restarting run."
-    if [ -f $prefix/.scr/balancer.scr ]
-    then
-      SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
-      node_distribution="--distribution=arbitrary -w $SLURM_HOSTFILE"
-    else
-      SLURM_HOSTFILE=""
-      node_distribution="--distribution=block"
-    fi
-
-    continue
-  fi
 
   # any retry attempts left?
   if [ $runs -gt -1 ] ; then
