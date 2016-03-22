@@ -146,7 +146,7 @@ int scr_halt_sync_and_set(const scr_path* file_path, struct arglist* args, scr_h
   if (scr_hash_util_get_str(data, SCR_HALT_KEY_EXIT_REASON, &value) == SCR_SUCCESS) {
     if (strcmp(value, "MIGRATION") == 0) {
       printf("%s: HALT RUN: Reason: %s.\n", PROG, value);
-      scr_hash_unset(data, SCR_HALT_KEY_EXIT_REASON);
+      scr_hash_set_kv(data, SCR_HALT_KEY_EXIT_REASON, "AFTER_MIGRATION");
       rc = DO_MIGRATION;
     }
   }

@@ -140,5 +140,6 @@ scr_storedesc* scr_storedesc_cntl = NULL; /* store descriptor struct for control
 int scr_nreddescs = 0;            /* number of redundancy descriptors in scr_reddescs list */
 scr_reddesc* scr_reddescs = NULL; /* pointer to list of redundancy descriptors */
 
-int scr_balancer = 0;
-int scr_balancer_do_migrate = 0;
+int scr_balancer = 0;             /* Do we want to activate load balancing? */
+int scr_balancer_do_migrate = 0;  /* If we are in the process of migration */
+int scr_after_migration = 0;      /* If we are restoring after migration */

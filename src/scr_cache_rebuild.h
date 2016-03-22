@@ -63,6 +63,9 @@ int scr_scatter_filemaps(scr_filemap* my_map);
 /* distribute and rebuild files in cache */
 int scr_cache_rebuild(scr_filemap* map);
 
+/* distribute and rebuild files of the last dataset */
+int scr_cache_rebuild_after_migration(scr_filemap* map);
+
 /* remove any dataset ids from flush file which are not in cache,
  * and add any datasets in cache that are not in the flush file */
 int scr_flush_file_rebuild(const scr_filemap* map);

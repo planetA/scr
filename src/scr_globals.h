@@ -199,6 +199,7 @@ extern scr_storedesc* scr_storedesc_cntl; /* store descriptor struct for control
 extern int scr_nreddescs;         /* number of redundancy descriptors in scr_reddescs list */
 extern scr_reddesc* scr_reddescs; /* pointer to list of redundancy descriptors */
 
-extern int scr_balancer;
-extern int scr_balancer_do_migrate;
+extern int scr_balancer;             /* Do we want to activate load balancing? */
+extern int scr_balancer_do_migrate;  /* If we are in the process of migration */
+extern int scr_after_migration;      /* If we are restoring after migration */
 #endif

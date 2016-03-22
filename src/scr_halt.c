@@ -125,6 +125,13 @@ int scr_halt_sync_and_decrement(const scr_path* file_path, scr_hash* hash, int d
     char* save_reason = NULL;
     char* reason      = scr_hash_elem_get_first_val(hash,      SCR_HALT_KEY_EXIT_REASON);
     char* file_reason = scr_hash_elem_get_first_val(file_hash, SCR_HALT_KEY_EXIT_REASON);
+
+    if (file_reason && strcasecmp(file_reason, "after_migration") == 0) {
+      scr_hash_unset(file_hash, SCR_HALT_KEY_EXIT_REASON);
+      reason = "AFTER_MIGRATION";
+      file_reason = NULL;
+    }
+
     if (reason != NULL && file_reason == NULL) {
       save_reason = strdup(reason);
     }

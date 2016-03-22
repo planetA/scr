@@ -1301,7 +1301,7 @@ int scr_cache_rebuild(scr_filemap* map)
     if (current_id != -1) {
       /* remember that we made an attempt to distribute at least one dataset */
       distribute_attempted = 1;
-      
+
       /* log the attempt */
       if (scr_my_rank_world == 0) {
         scr_dbg(1, "Attempting to distribute and rebuild dataset %d", current_id);
@@ -1412,6 +1412,155 @@ int scr_cache_rebuild(scr_filemap* map)
         if (scr_log_enable) {
           scr_log_event("RESTART FAILED", NULL, NULL, &time_t_start, &time_diff);
         }
+      }
+    }
+  }
+
+  /* free our list of dataset ids */
+  scr_free(&dsets);
+
+  return rc;
+}
+
+/* distribute and rebuild files in cache */
+int scr_cache_rebuild_after_migration(scr_filemap* map)
+{
+  int rc = SCR_FAILURE;
+
+  double time_start, time_end, time_diff;
+
+  /* start timer */
+  time_t time_t_start;
+  if (scr_my_rank_world == 0) {
+    time_t_start = scr_log_seconds();
+    time_start = MPI_Wtime();
+  }
+
+  /* clean any incomplete files from our cache */
+  scr_cache_clean(map);
+
+  /* get ordered list of datasets we have in our cache */
+  int ndsets;
+  int* dsets;
+  scr_filemap_list_datasets(map, &ndsets, &dsets);
+
+  if (ndsets == 0) {
+    goto exit;
+  }
+
+  /* TODO: also attempt to recover datasets which we were in the
+   * middle of flushing */
+
+  /* If we are recovering from migration, the last dataset should be
+     the migration dataset */
+  int dset_index = dsets[ndsets - 1];
+
+  int current_id;
+  MPI_Allreduce(&dset_index, &current_id, 1, MPI_INT, MPI_MIN, scr_comm_world);
+  if (!scr_alltrue(current_id == dset_index)) {
+    goto exit;
+  }
+
+  /* log the attempt */
+  if (scr_my_rank_world == 0) {
+    scr_dbg(1, "Attempting to distribute and rebuild dataset after migration %d",
+            current_id);
+    if (scr_log_enable) {
+      time_t now = scr_log_seconds();
+      scr_log_event("REBUILD STARTED", NULL, &current_id, &now, NULL);
+    }
+  }
+
+  /* distribute dataset descriptor for this dataset */
+  if (scr_distribute_datasets(map, current_id) == SCR_SUCCESS) {
+    /* distribute redundancy descriptor for this dataset */
+    scr_reddesc reddesc;
+    if (scr_distribute_reddescs(map, current_id, &reddesc) == SCR_SUCCESS) {
+      /* create a directory for this dataset */
+      scr_cache_dir_create(&reddesc, current_id);
+
+      /* distribute the files for this dataset */
+      scr_distribute_files(map, &reddesc, current_id);
+
+      /* rebuild files for this dataset */
+      rc = scr_reddesc_recover(map, &reddesc, current_id);
+      if (rc == SCR_SUCCESS) {
+        /* rebuild succeeded */
+
+        /* update dataset id */
+        scr_dataset_id = current_id;
+
+        /* TODO: dataset may not be a checkpoint */
+        /* update scr_checkpoint_id */
+        scr_checkpoint_id = current_id;
+
+        /* update our flush file to indicate this dataset is in cache */
+        scr_flush_file_location_set(current_id, SCR_FLUSH_KEY_LOCATION_CACHE);
+
+        /* TODO: if storing flush file in control directory on each node,
+         * if we find any process that has marked the dataset as flushed,
+         * marked it as flushed in every flush file */
+
+        /* TODO: would like to restore flushing status to datasets that
+         * were in the middle of a flush, but we need to better manage
+         * the transfer file to do this, so for now just forget about
+         * flushing this dataset */
+        scr_flush_file_location_unset(current_id, SCR_FLUSH_KEY_LOCATION_FLUSHING);
+      }
+
+      /* free redundancy descriptor */
+      scr_reddesc_free(&reddesc);
+    }
+  }
+
+ exit:
+
+  /* if the distribute or rebuild failed, delete the dataset */
+  if (rc == SCR_SUCCESS) {
+    /* rebuid worked, log success */
+    if (scr_my_rank_world == 0) {
+      scr_dbg(1, "Rebuilt dataset %d", current_id);
+      if (scr_log_enable) {
+        time_t now = scr_log_seconds();
+        scr_log_event("REBUILD SUCCEEDED", NULL, &current_id, &now, NULL);
+      }
+    }
+  } else {
+    /* log that we failed */
+    if (scr_my_rank_world == 0) {
+      scr_dbg(1, "Failed to rebuild dataset %d", current_id);
+      if (scr_log_enable) {
+        time_t now = scr_log_seconds();
+        scr_log_event("REBUILD FAILED", NULL, &current_id, &now, NULL);
+      }
+    }
+
+    /* TODO: there is a bug here, since scr_cache_delete needs to read
+     * the redundancy descriptor from the filemap in order to delete the
+     * cache directory, but we may have failed to distribute the reddescs
+     * above so not every task has one */
+
+    /* rebuild failed, delete this dataset from cache */
+    scr_cache_delete(map, current_id);
+  }
+
+  /* stop timer and report performance */
+  if (scr_my_rank_world == 0) {
+    time_end = MPI_Wtime();
+    time_diff = time_end - time_start;
+
+    if (rc == SCR_SUCCESS) {
+      scr_dbg(1, "Migration restart succeeded for checkpoint %d, took %f secs",
+              scr_checkpoint_id, time_diff
+              );
+      if (scr_log_enable) {
+        scr_log_event("RESTART SUCCEEDED", NULL, &scr_checkpoint_id, &time_t_start, &time_diff);
+      }
+    } else {
+      /* scr_checkpoint_id is not defined */
+      scr_dbg(1, "Migration restart failed, took %f secs", time_diff);
+      if (scr_log_enable) {
+        scr_log_event("RESTART FAILED", NULL, NULL, &time_t_start, &time_diff);
       }
     }
   }

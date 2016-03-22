@@ -93,7 +93,10 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     /* check whether a reason has been specified */
     char* reason;
     if (scr_hash_util_get_str(scr_halt_hash, SCR_HALT_KEY_EXIT_REASON, &reason) == SCR_SUCCESS) {
-      if (strcmp(reason, "") != 0) {
+      if (strcasecmp(reason, "after_migration") == 0) {
+        scr_after_migration = 1;
+        scr_hash_unset(scr_halt_hash, SCR_HALT_KEY_EXIT_REASON);
+      } else if (strcmp(reason, "") != 0) {
         /* since reason points at the EXIT_REASON string in the halt hash, and since
          * scr_halt() resets this value, we need to copy the current reason */
         char* tmp_reason = strdup(reason);
@@ -177,7 +180,8 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     /* TODO: need to flush any output sets and the latest checkpoint set */
 
     /* flush files if needed */
-    scr_flush_sync(scr_map, scr_checkpoint_id);
+    if (!scr_balancer_do_migrate)
+      scr_flush_sync(scr_map, scr_checkpoint_id);
 
     /* sync up tasks before exiting (don't want tasks to exit so early that
      * runtime kills others after timeout) */
@@ -186,6 +190,9 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     /* and exit the job */
     exit(0);
   }
+
+  /* broadcast after migration condition from rank 0 */
+  MPI_Bcast(&scr_after_migration, 1, MPI_INT, 0, scr_comm_world);
 
   return need_to_halt;
 }
@@ -199,8 +206,8 @@ Utility functions
 /* check whether a flush is needed, and execute flush if so */
 static int scr_check_flush(scr_filemap* map)
 {
-  /* check whether user has flush enabled */
-  if (scr_flush > 0) {
+  /* check whether user has flush enabled and we are not in the migration state */
+  if (scr_flush > 0 && !scr_balancer_do_migrate) {
     /* every scr_flush checkpoints, flush the checkpoint set */
     if (scr_checkpoint_id > 0 && scr_checkpoint_id % scr_flush == 0) {
       /* need to flush this checkpoint, determine whether to use async or sync flush */
@@ -1009,6 +1016,10 @@ int SCR_Init()
 
   /* attempt to distribute files for a restart */
   int rc = SCR_FAILURE;
+  if (scr_after_migration) {
+    rc = scr_cache_rebuild_after_migration(scr_map);
+  }
+
   if (rc != SCR_SUCCESS && scr_distribute) {
     /* distribute and rebuild files in cache,
      * sets scr_dataset_id and scr_checkpoint_id upon success */
@@ -1085,6 +1096,16 @@ int SCR_Init()
 
   if (rc != SCR_SUCCESS) {
     /* TODO for Maksym: Do something */
+  }
+
+  /* All required recovery actions are done, if any */
+  scr_after_migration = 0;
+  scr_hash_unset(scr_halt_hash, SCR_HALT_KEY_EXIT_REASON);
+  if (scr_my_rank_world == 0) {
+    /* get file name */
+    char* file = scr_path_strdup(scr_halt_file);
+    scr_hash_write(file, scr_halt_hash);
+    scr_free(&file);
   }
 
   /* sync everyone before returning to ensure that subsequent

@@ -399,7 +399,7 @@ static int scr_reddesc_apply_migration_send(
     scr_filemap_get_meta(map, id, scr_my_rank_world, files[i], send_meta);
 
     /* send the file to a partner */
-    if (scr_swap_files(COPY_FILES, files[i], send_meta, receiver_rank,
+    if (scr_swap_files(MOVE_FILES, files[i], send_meta, receiver_rank,
                        NULL, NULL, MPI_PROC_NULL, c->comm) != SCR_SUCCESS) {
       rc = SCR_FAILURE;
     }
@@ -472,7 +472,7 @@ static int scr_reddesc_apply_migration_receive(
 
     /* receive a file from a partner */
     scr_meta* recv_meta = scr_meta_new();
-    if (scr_swap_files(COPY_FILES, NULL, NULL, MPI_PROC_NULL,
+    if (scr_swap_files(MOVE_FILES, NULL, NULL, MPI_PROC_NULL,
                        file_partner, recv_meta, sender_rank,
                        c->comm) != SCR_SUCCESS) {
       rc = SCR_FAILURE;
