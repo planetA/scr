@@ -1099,13 +1099,15 @@ int SCR_Init()
   }
 
   /* All required recovery actions are done, if any */
-  scr_after_migration = 0;
-  scr_hash_unset(scr_halt_hash, SCR_HALT_KEY_EXIT_REASON);
-  if (scr_my_rank_world == 0) {
-    /* get file name */
-    char* file = scr_path_strdup(scr_halt_file);
-    scr_hash_write(file, scr_halt_hash);
-    scr_free(&file);
+  if (scr_after_migration) {
+    scr_after_migration = 0;
+    scr_hash_unset(scr_halt_hash, SCR_HALT_KEY_EXIT_REASON);
+    if (scr_my_rank_world == 0) {
+      /* get file name */
+      char* file = scr_path_strdup(scr_halt_file);
+      scr_hash_write(file, scr_halt_hash);
+      scr_free(&file);
+    }
   }
 
   /* sync everyone before returning to ensure that subsequent
