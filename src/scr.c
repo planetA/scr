@@ -501,6 +501,11 @@ static int scr_get_params()
     scr_balancer = atoi(value);
   }
 
+  /* whether to activate balancer debugging */
+  if ((value = scr_param_get("SCR_BALANCER_DEBUG")) != NULL) {
+    scr_balancer_debug = strdup(value);
+  }
+
   /* whether to distribute files in filemap to ranks */
   if ((value = scr_param_get("SCR_DISTRIBUTE")) != NULL) {
     scr_distribute = atoi(value);

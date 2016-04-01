@@ -16,9 +16,14 @@
 #define MSEC 1000*USEC
 #define  SEC 1000*MSEC
 
+#define USE_MPI_IO 0
+
 static struct timespec last_step;
 static struct timeval last_timeval;
 static MPI_Datatype MPI_WORK_ITEM = 0;
+#if USE_MPI_IO
+static MPI_File time_log_fh;
+#endif
 
 /*
  * Comparison function for qsort to sort doubles in descending order.
@@ -92,11 +97,43 @@ int scr_balance_init(void)
   /* Generate random number for matching algorithm. */
   srand(time(NULL) + scr_my_rank_world);
   srand(1 + scr_my_rank_world);
+
+#if USE_MPI_IO
+  if (scr_balancer_debug) {
+    int rc;
+    int amode = (MPI_MODE_APPEND | MPI_MODE_CREATE |
+                 MPI_MODE_WRONLY);
+    MPI_Info info = MPI_INFO_NULL;
+
+    char file[SCR_MAX_FILENAME];
+    snprintf(file, SCR_MAX_FILENAME, "/scratch/s9951545/scr_balancer.%d.debug", scr_ranks_world);
+    rc = MPI_File_open(MPI_COMM_WORLD, file, amode, info, &time_log_fh);
+    if (rc != MPI_SUCCESS) {
+      scr_abort(-1, "Failed to open file %s @ %s:%d", file,
+                __FILE__, __LINE__);
+    }
+
+    rc = MPI_File_set_view(time_log_fh, 0,
+                      MPI_DOUBLE, MPI_DOUBLE, "native",
+                      info);
+    if (rc != MPI_SUCCESS) {
+      scr_abort(-1, "Failed to set view for file @ %s:%d",
+                __FILE__, __LINE__);
+    }
+  }
+#endif
+
 }
 
 int scr_balance_finalize(void)
 {
   MPI_Type_free(&MPI_WORK_ITEM);
+
+#if USE_MPI_IO
+  if (scr_balancer_debug) {
+    MPI_File_close(&time_log_fh);
+  }
+#endif
 }
 
 static int diff_time(struct timespec *x, struct timespec *y, struct timespec *result)
@@ -369,6 +406,53 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   int work_item_size;
   if (scr_my_rank_world == 0) {
     chunks = (struct work_item*)SCR_MALLOC(scr_ranks_world * sizeof(*chunks));
+  }
+
+  if (scr_balancer_debug) {
+    int rc;
+#if USE_MPI_IO
+    MPI_Status status;
+
+    time = (double)scr_my_rank_world;
+    rc = MPI_File_write_ordered(time_log_fh, &time, 1, MPI_DOUBLE, &status);
+    if (rc != MPI_SUCCESS) {
+      scr_abort(-1, "Failed to write to file @ %s:%d",
+                __FILE__, __LINE__);
+    }
+
+    int count;
+    MPI_Get_count(&status, MPI_DOUBLE, &count);
+    if (count != 1) {
+      scr_abort(-1, "Wrong number of values has been written: %d @ %s:%d",
+                count, __FILE__, __LINE__);
+    }
+#else
+    double *current_time;
+    if (scr_my_rank_world == 0) {
+      current_time = (double *)SCR_MALLOC(scr_ranks_world * sizeof(double));
+    }
+
+    rc = MPI_Gather(&time, 1, MPI_DOUBLE,
+                    current_time, 1, MPI_DOUBLE, 0,
+                    scr_comm_world);
+    if (rc != MPI_SUCCESS) {
+      scr_abort(-1, "Failed to gather time data to debugging dump @ %s:%d",
+                __FILE__, __LINE__);
+    }
+
+    if (scr_my_rank_world == 0) {
+      FILE *file;
+      char filename[SCR_MAX_FILENAME];
+      snprintf(filename, SCR_MAX_FILENAME, scr_balancer_debug, scr_ranks_world);
+
+      file = fopen(filename, "a");
+      fwrite(&scr_ranks_world, sizeof(scr_ranks_world), 1, file);
+      fwrite(current_time, sizeof(double), scr_ranks_world, file);
+      fclose(file);
+      scr_free(&current_time);
+    }
+#endif
+
   }
 
   my_item.work = time;

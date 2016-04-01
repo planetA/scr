@@ -200,6 +200,7 @@ extern int scr_nreddescs;         /* number of redundancy descriptors in scr_red
 extern scr_reddesc* scr_reddescs; /* pointer to list of redundancy descriptors */
 
 extern int scr_balancer;             /* Do we want to activate load balancing? */
+extern char *scr_balancer_debug;     /* File to dump debugging information */
 extern int scr_balancer_do_migrate;  /* If we are in the process of migration */
 extern int scr_after_migration;      /* If we are restoring after migration */
 #endif
