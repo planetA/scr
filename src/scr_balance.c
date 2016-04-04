@@ -631,10 +631,18 @@ int scr_balance_need_checkpoint(int *flag)
 
   imbalance = calculate_imbalance(time);
   //scr_err("I'm %d run on %s for time %f", scr_my_rank_world, hostname, time);
+
+  /* Need to measure again to ignore time spent in balancer */
+  getrusage(RUSAGE_SELF, &my_rusage);
+  clock_gettime(CLOCK_MONOTONIC, &cur_step);
+
+  /* Remember the beginning of next interval (timestep) */
   last_step.tv_sec = cur_step.tv_sec;
   last_step.tv_nsec = cur_step.tv_nsec;
   last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
   last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
+
+  return 0;
 }
 
 int scr_balance_complete_checkpoint(int valid)
