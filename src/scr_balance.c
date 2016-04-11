@@ -632,7 +632,15 @@ int scr_balance_need_checkpoint(int *flag)
   imbalance = calculate_imbalance(time);
   //scr_err("I'm %d run on %s for time %f", scr_my_rank_world, hostname, time);
 
-  /* Need to measure again to ignore time spent in balancer */
+  return 0;
+}
+
+int scr_balance_complete_checkpoint(int valid)
+{
+  struct rusage my_rusage;
+  struct timespec cur_step;
+
+  /* Need to measure again to ignore time spent in balancer and checkpointing */
   getrusage(RUSAGE_SELF, &my_rusage);
   clock_gettime(CLOCK_MONOTONIC, &cur_step);
 
@@ -642,11 +650,7 @@ int scr_balance_need_checkpoint(int *flag)
   last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
   last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
 
-  return 0;
-}
-
-int scr_balance_complete_checkpoint(int valid)
-{
+  return SCR_SUCCESS;
 }
 
 scr_reddesc *scr_balancer_get_reddesc()
