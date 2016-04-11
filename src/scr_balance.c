@@ -612,7 +612,7 @@ int scr_balance_need_checkpoint(int *flag)
     last_step.tv_nsec = cur_step.tv_nsec;
     last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
     last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
-    return 0;
+    return SCR_SUCCESS;
   }
 
   /* Convert time from struct timeval to double to be able to perform
@@ -632,7 +632,7 @@ int scr_balance_need_checkpoint(int *flag)
   imbalance = calculate_imbalance(time);
   //scr_err("I'm %d run on %s for time %f", scr_my_rank_world, hostname, time);
 
-  return 0;
+  return SCR_SUCCESS;
 }
 
 int scr_balance_complete_checkpoint(int valid)
