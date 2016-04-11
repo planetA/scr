@@ -607,7 +607,7 @@ int scr_balance_need_checkpoint(int *flag)
 
 
   if (last_step.tv_sec == 0 && last_step.tv_nsec == 0) {
-    /* Making first time step, need previous record */ 
+    /* Making first time step, need previous record */
     last_step.tv_sec = cur_step.tv_sec;
     last_step.tv_nsec = cur_step.tv_nsec;
     last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
@@ -618,10 +618,10 @@ int scr_balance_need_checkpoint(int *flag)
   /* Convert time from struct timeval to double to be able to perform
    * a reduce operation using MPI without defining own datatype
    * operation*/
-  double time = (cur_step.tv_sec - last_step.tv_sec) * SEC 
+  double time = (cur_step.tv_sec - last_step.tv_sec) * SEC
                 + (cur_step.tv_nsec - last_step.tv_nsec) * NSEC;
   time = my_rusage.ru_utime.tv_sec * SEC + my_rusage.ru_utime.tv_usec * USEC;
-  time = (my_rusage.ru_utime.tv_sec - last_timeval.tv_sec) * SEC 
+  time = (my_rusage.ru_utime.tv_sec - last_timeval.tv_sec) * SEC
                 + (my_rusage.ru_utime.tv_usec - last_timeval.tv_usec) * USEC;
   double imbalance;
 
