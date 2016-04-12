@@ -575,7 +575,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     double imbalance = max / avg;
     scr_err("I predict imbalance of %f", imbalance);
 
-    if (measured_imbalance / imbalance > 1.25)
+    if (measured_imbalance / imbalance > 1.10)
       scr_balancer_do_migrate = 1;
     else
       scr_balancer_do_migrate = 0;
