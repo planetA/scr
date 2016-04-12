@@ -513,13 +513,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   if (scr_my_rank_world == 0) {
     schedule = SCR_MALLOC(num_nodes * sizeof(*schedule));
     memset(schedule, 0, num_nodes * sizeof(*schedule));
-  }
 
-  //MPI_Wait(&request, &status);
-  MPI_Barrier(scr_comm_world);
-  MPI_Barrier(scr_comm_world);
-
-  if (scr_my_rank_world == 0) {
     qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item);
 
 #define ROUND_ROBIN 0
