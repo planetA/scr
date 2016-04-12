@@ -141,6 +141,7 @@ int scr_nreddescs = 0;            /* number of redundancy descriptors in scr_red
 scr_reddesc* scr_reddescs = NULL; /* pointer to list of redundancy descriptors */
 
 int scr_balancer = 0;             /* Do we want to activate load balancing? */
+int scr_disable_ft = 0;           /* Disable checkpoints for fault tolerance. */
 char *scr_balancer_debug = NULL;  /* File to dump debugging information */
 int scr_balancer_do_migrate = 0;  /* If we are in the process of migration */
 int scr_after_migration = 0;      /* If we are restoring after migration */

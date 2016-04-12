@@ -501,6 +501,11 @@ static int scr_get_params()
     scr_balancer = atoi(value);
   }
 
+  /* whether to activate checkpoint-migrate-restart */
+  if ((value = scr_param_get("SCR_DISABLE_FT")) != NULL) {
+    scr_disable_ft = atoi(value);
+  }
+
   /* whether to activate balancer debugging */
   if ((value = scr_param_get("SCR_BALANCER_DEBUG")) != NULL) {
     scr_balancer_debug = strdup(value);
@@ -1335,11 +1340,16 @@ int SCR_Need_checkpoint(int* flag)
     {
       *flag = 1;
     }
+
+    /* In some cases (for instance, when we debug load balancing, or
+       our system is reliable) we do not want to have checkpoints for
+       fault tolerance. */
+    if (scr_disable_ft) {
+      *flag = 0;
+    }
   }
 
-  if ((scr_balancer && !*flag) ||
-      (scr_balancer && *flag))
-  {
+  if (scr_balancer) {
     scr_balance_need_checkpoint(flag);
   }
 
