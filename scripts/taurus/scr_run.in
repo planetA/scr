@@ -101,7 +101,7 @@ SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
 rm $SLURM_HOSTFILE
 for i in `scontrol show hostnames`
 do
-  echo $i:96 >> $SLURM_HOSTFILE
+  echo $i:1 >> $SLURM_HOSTFILE
 done
 
 node_distribution="--distribution=block"
