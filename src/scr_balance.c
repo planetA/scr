@@ -72,10 +72,43 @@ static void scr_balance_reddesc_set_chunks(struct work_item *chunks)
   state->chunks = chunks;
 }
 
+void scr_balance_timestamp(const char *message)
+{
+  if (!scr_balancer) {
+    return;
+  }
+
+  MPI_Barrier(scr_comm_world);
+
+  if (scr_my_rank_world == 0) {
+    /* Print current time in milliseconds to log the work */
+    struct timespec cur_step;
+    clock_gettime(CLOCK_MONOTONIC, &cur_step);
+    long long unsigned time = cur_step.tv_sec * 1000 + cur_step.tv_nsec / 1000000;
+    printf("SCR_BALANCER_TOKEN: %s: %llu\n", message, time);
+  }
+}
+
+void scr_balance_timestamp_nb(const char *message)
+{
+  if (!scr_balancer) {
+    return;
+  }
+
+  if (scr_my_rank_world == 0) {
+    /* Print current time in milliseconds to log the work */
+    struct timespec cur_step;
+    clock_gettime(CLOCK_MONOTONIC, &cur_step);
+    long long unsigned time = cur_step.tv_sec * 1000 + cur_step.tv_nsec / 1000000;
+    printf("SCR_BALANCER_TOKEN: %s: %llu\n", message, time);
+  }
+}
+
 #define MPI_Aint_diff(addr1, addr2) ((MPI_Aint) ((char *) (addr1) - (char *) (addr2)))
 
 int scr_balance_init(void)
 {
+
   /* Init value of last time step for imbalance measurement. */
   memset(&last_step, 0, sizeof(last_step));
 
@@ -662,6 +695,7 @@ int scr_balance_need_checkpoint(int *flag)
   getrusage(RUSAGE_SELF, &my_rusage);
   clock_gettime(CLOCK_MONOTONIC, &cur_step);
 
+  scr_balance_timestamp("NEED_CHECKPOINT_ENTER");
 
   if (last_step.tv_sec == 0 && last_step.tv_nsec == 0) {
     /* Making first time step, need previous record */
@@ -686,7 +720,11 @@ int scr_balance_need_checkpoint(int *flag)
   int namelen;
   MPI_Get_processor_name(hostname, &namelen);
 
+  scr_balance_timestamp("DECISION_START");
+
   imbalance = calculate_imbalance(time);
+
+  scr_balance_timestamp("DECISION_END");
 
   if (scr_balancer_do_migrate) {
     *flag = 1;
@@ -709,6 +747,8 @@ int scr_balance_complete_checkpoint(int valid)
   last_step.tv_nsec = cur_step.tv_nsec;
   last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
   last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
+
+  scr_balance_timestamp("BALANCE_COMPLETE_CHECKPOINT");
 
   return SCR_SUCCESS;
 }

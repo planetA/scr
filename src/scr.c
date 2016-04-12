@@ -64,6 +64,7 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     scr_halt_sync_and_decrement(scr_halt_file, scr_halt_hash, decrement);
 
     if (scr_balancer_do_migrate) {
+      scr_balance_timestamp_nb("NEED_TO_HALT");
       scr_dbg(0, "Job exiting: Balancer made a decision to stop the job");
       scr_halt("MIGRATION");
       need_to_halt = 1;
@@ -709,6 +710,8 @@ int SCR_Init()
     return SCR_FAILURE;
   }
 
+  scr_balance_timestamp("INIT_START");
+
 #ifdef HAVE_LIBDTCMP
   /* initialize the DTCMP library for sorting and ranking routines
    * if we're using it */
@@ -1139,6 +1142,8 @@ int SCR_Init()
       scr_log_event("COMPUTE STARTED", NULL, &compute_id, &scr_timestamp_compute_start, NULL);
     }
   }
+
+  scr_balance_timestamp("INIT_END");
 
   /* all done, ready to go */
   return rc;

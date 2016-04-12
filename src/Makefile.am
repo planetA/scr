@@ -186,7 +186,7 @@ scr_retries_halt_LDADD = $(LIBZ_LDFLAGS) libscr_cmds.la
 scr_retries_halt_CFLAGS = $(AM_CFLAGS)
 
 scr_migration_SOURCES = scr_migration.c
-scr_migration_LDADD = $(LIBZ_LDFLAGS) libscr_cmds.la
+scr_migration_LDADD = $(LIBZ_LDFLAGS) -lrt libscr_cmds.la
 scr_migration_CFLAGS = $(AM_CFLAGS)
 
 scr_crc32_SOURCES = scr_crc32.c

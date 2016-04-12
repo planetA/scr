@@ -179,6 +179,23 @@ cleanup:
   return rc;
 }
 
+void scr_balance_timestamp(const char *message)
+{
+  int scr_my_rank_world;
+  char* value = NULL;
+  if ((value = getenv("SLURM_PROCID")) != NULL) {
+    scr_my_rank_world = atoi(value);
+  }
+
+  if (scr_my_rank_world == 0) {
+    /* Print current time in milliseconds to log the work */
+    struct timespec cur_step;
+    clock_gettime(CLOCK_MONOTONIC, &cur_step);
+    long long unsigned time = cur_step.tv_sec * 1000 + cur_step.tv_nsec / 1000000;
+    printf("SCR_BALANCER_TOKEN: %s: %llu\n", message, time);
+  }
+}
+
 /* returns 0 if we need to halt, returns 1 otherwise */
 int main (int argc, char *argv[])
 {
@@ -188,6 +205,8 @@ int main (int argc, char *argv[])
     /* failed to process command line, to be safe, assume we need to migrate */
     return NO_MIGRATION;
   }
+
+  scr_balance_timestamp("ENTER_SCR_MIGRATION");
 
   /* TODO: hopefully we don't abort right here and exit with wrong return code */
   /* create path to halt file */
@@ -206,6 +225,7 @@ int main (int argc, char *argv[])
   /* free off our file name storage */
   scr_path_delete(&halt_file);
 
+  scr_balance_timestamp("LEAVE_SCR_MIGRATION");
   /* return appropriate exit code */
   return rc;
 }
