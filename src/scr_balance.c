@@ -595,9 +595,6 @@ int scr_balance_need_checkpoint(int *flag)
     return SCR_FAILURE;
   }
 
-  //scr_err("Enter LB");
-  // fflush(stdout);
-
   struct rusage my_rusage;
   struct timespec cur_step;
   struct timeval *utimes;
