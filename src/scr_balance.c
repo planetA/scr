@@ -43,6 +43,16 @@ static int compare_work_item(const void *a, const void *b) {
   return 0;
 }
 
+static int compare_work_item_ptr(const void *a, const void *b) {
+  const struct work_item * const *pa = a;
+  const struct work_item * const *pb = b;
+  const struct work_item *aa = *pa;
+  const struct work_item *bb = *pb;
+  if (aa->work > bb->work) return -1;
+  if (aa->work < bb->work) return 1;
+  return 0;
+}
+
 static scr_reddesc_migration *scr_balance_reddesc_migration()
 {
   scr_reddesc *reddesc = scr_reddesc_for_migration(scr_nreddescs, scr_reddescs);
@@ -479,10 +489,18 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   if (scr_my_rank_world == 0) {
     qsort(chunks, scr_my_rank_world, sizeof(*chunks), compare_work_item);
 
-#define ROUND_ROBIN 1
+#define ROUND_ROBIN 0
+#define ROUND_ROLLING 1
 #if ROUND_ROBIN
     int cur_node = 0;
+#elif ROUND_ROLLING
+    struct work_item **per_id_chunks;
+    int *node_list;
+    int free_nodes;
+    per_id_chunks= SCR_MALLOC(scr_ranks_world / num_nodes * sizeof(*per_id_chunks));
+    node_list = SCR_MALLOC(num_nodes * sizeof(*node_list));
 #endif
+
     for (int i = 0; i < scr_ranks_world / num_nodes; i++) {
 #if 0
       int min_node = 0;
@@ -500,11 +518,53 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
         chunks[i+j*offset].node = (cur_node + j) % num_nodes;
       }
       cur_node = (cur_node + 1) % num_nodes;
+#elif ROUND_ROLLING
+      /* The idea is to work around somewhat broken XOR groups, where
+         each node should be in a separate XOR group. */
+
+      /* For each local id */
+
+      /* Sort ranks with the same local ids */
+      int offset = scr_ranks_world / num_nodes;
+      for (int j = 0; j < num_nodes; j++)
+        per_id_chunks[j] = &chunks[i+j*offset];
+      qsort(per_id_chunks, num_nodes, sizeof(*per_id_chunks), compare_work_item_ptr);
+
+      /* Initialize node occupation list */
+      free_nodes = num_nodes;
+      for (int j = 0; j < free_nodes; j++)
+        node_list[j] = j;
+
+      /* For each rank with specific local id */
+      for (int j = 0; j < num_nodes; j++) {
+        int min_node = 0;
+        for (int k = 0; k < free_nodes; k++) {
+          if (schedule[node_list[k]] < schedule[node_list[min_node]])
+            min_node = k;
+        }
+
+        /* Put the chunk on the node with least workload among
+           untouched ones in this cycle*/
+        per_id_chunks[j]->node = node_list[min_node];
+        /* Record change in the schedule */
+        schedule[node_list[min_node]] += per_id_chunks[j]->work;
+
+        /* Decrement number of untouched nodes */
+        free_nodes -= 1;
+        /* Replace the last node in the list for the just allocated one. */
+        node_list[min_node] = node_list[free_nodes];
+      }
 #endif
     }
 
+#if ROUND_ROLLING
+    scr_free(&per_id_chunks);
+    scr_free(&node_list);
+#endif
+
     double max = 0.;
     double avg = 0.;
+    /* Compute predicted imbalance */
     for (int i = 0; i < num_nodes; i ++) {
       if (schedule[i] > max) {
         max = schedule[i];
