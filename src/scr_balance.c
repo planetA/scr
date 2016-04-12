@@ -630,7 +630,10 @@ int scr_balance_need_checkpoint(int *flag)
   MPI_Get_processor_name(hostname, &namelen);
 
   imbalance = calculate_imbalance(time);
-  //scr_err("I'm %d run on %s for time %f", scr_my_rank_world, hostname, time);
+
+  if (scr_balancer_do_migrate) {
+    *flag = 1;
+  }
 
   return SCR_SUCCESS;
 }
