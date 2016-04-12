@@ -487,7 +487,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   MPI_Barrier(scr_comm_world);
 
   if (scr_my_rank_world == 0) {
-    qsort(chunks, scr_my_rank_world, sizeof(*chunks), compare_work_item);
+    qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item);
 
 #define ROUND_ROBIN 0
 #define ROUND_ROLLING 1
