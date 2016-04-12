@@ -654,7 +654,9 @@ static double calculate_imbalance(double time)
       scr_err("I see imbalance of %f", max/avg);
     }
   }
+
   propose_schedule(time, num_nodes, imbalance);
+
   return imbalance;
 }
 
