@@ -1772,6 +1772,8 @@ int SCR_Complete_checkpoint(int valid)
     );
   }
 
+  scr_balance_complete_checkpoint(valid);
+
   /* if copy is good, check whether we need to flush or halt,
    * otherwise delete the checkpoint to conserve space */
   if (rc == SCR_SUCCESS) {
