@@ -43,6 +43,14 @@ static int compare_work_item(const void *a, const void *b) {
   return 0;
 }
 
+static int compare_work_item_id(const void *a, const void *b) {
+  const struct work_item *aa = a;
+  const struct work_item *bb = b;
+  if (aa->id > bb->id) return 1;
+  if (aa->id < bb->id) return -1;
+  return 0;
+}
+
 static int compare_work_item_ptr(const void *a, const void *b) {
   const struct work_item * const *pa = a;
   const struct work_item * const *pb = b;
@@ -414,6 +422,8 @@ int dump_schedule(struct work_item *chunks, int processes, int num_nodes)
         goto cleanup;
       }
 
+
+      qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item_id);
 
       for (int i = 0; i < processes; i++) {
         /* 2 characters for \n and 1 character for \O. Not sure if this right calculation */

@@ -412,6 +412,7 @@ static int scr_reddesc_apply_migration_send(
   scr_free(&dir);
 
   /* write out the updated filemap */
+  scr_filemap_remove_rank_by_dataset(map, id, scr_my_rank_world);
   scr_filemap_write(scr_map_file, map);
 
   /* free our list of files */
