@@ -1029,9 +1029,6 @@ int SCR_Init()
 
   /* attempt to distribute files for a restart */
   int rc = SCR_FAILURE;
-  if (scr_after_migration && 0) {
-    rc = scr_cache_rebuild_after_migration(scr_map);
-  }
 
   if (rc != SCR_SUCCESS && scr_distribute) {
     /* distribute and rebuild files in cache,

@@ -516,36 +516,13 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
 
     qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item);
 
-#define ROUND_ROBIN 0
-#define ROUND_ROLLING 1
-#if ROUND_ROBIN
-    int cur_node = 0;
-#elif ROUND_ROLLING
     struct work_item **per_id_chunks;
     int *node_list;
     int free_nodes;
     per_id_chunks= SCR_MALLOC(scr_ranks_world / num_nodes * sizeof(*per_id_chunks));
     node_list = SCR_MALLOC(num_nodes * sizeof(*node_list));
-#endif
 
     for (int i = 0; i < scr_ranks_world / num_nodes; i++) {
-#if 0
-      int min_node = 0;
-      for (int j = 1; j < num_nodes; j++) {
-        if (schedule[j] < schedule[min_node]) {
-          min_node = j;
-        }
-      }
-      schedule[min_node] += chunks[i].work;
-      chunks[i].node = min_node;
-#elif ROUND_ROBIN
-      int offset = scr_ranks_world / num_nodes;
-      for (int j = 0; j < num_nodes; j ++) {
-        schedule[cur_node] += chunks[i+j*offset].work;
-        chunks[i+j*offset].node = (cur_node + j) % num_nodes;
-      }
-      cur_node = (cur_node + 1) % num_nodes;
-#elif ROUND_ROLLING
       /* The idea is to work around somewhat broken XOR groups, where
          each node should be in a separate XOR group. */
 
@@ -581,13 +558,10 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
         /* Replace the last node in the list for the just allocated one. */
         node_list[min_node] = node_list[free_nodes];
       }
-#endif
     }
 
-#if ROUND_ROLLING
     scr_free(&per_id_chunks);
     scr_free(&node_list);
-#endif
 
     double max = 0.;
     double avg = 0.;
