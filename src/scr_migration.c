@@ -190,7 +190,7 @@ void scr_balance_timestamp(const char *message)
   if (scr_my_rank_world == 0) {
     /* Print current time in milliseconds to log the work */
     struct timespec cur_step;
-    clock_gettime(CLOCK_MONOTONIC, &cur_step);
+    clock_gettime(CLOCK_REALTIME, &cur_step);
     long long unsigned time = cur_step.tv_sec * 1000 + cur_step.tv_nsec / 1000000;
     printf("SCR_BALANCER_TOKEN: %s: %llu\n", message, time);
   }
