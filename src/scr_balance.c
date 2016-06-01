@@ -336,6 +336,11 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
   int *backward;
   backward = (int *)SCR_MALLOC(rank_vector_size);
 
+  if (!backward) {
+    scr_abort(-1, "Failed to allocate memory for local backward vector of size %d @ %s:%d",
+              rank_vector_size, __FILE__, __LINE__);
+  }
+
   MPI_Allgather(&my_partner, 1, MPI_INT,
                 backward, 1, MPI_INT,
                 scr_comm_world);
