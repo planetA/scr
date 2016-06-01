@@ -286,7 +286,7 @@ ssize_t scr_read(const char* file, int fd, void* buf, size_t size)
 {
   ssize_t n = 0;
   int retries = 10;
-  while (n < size)
+  while (n < (ssize_t) size)
   {
     int rc = read(fd, (char*) buf + n, size - n);
     if (rc  > 0) {
@@ -324,15 +324,15 @@ ssize_t scr_write(const char* file, int fd, const void* buf, size_t size)
 {
   ssize_t n = 0;
   int retries = 10;
-  while (n < size)
+  while (n < (ssize_t) size)
   {
-    ssize_t rc = write(fd, (char*) buf + n, size - n);
+    ssize_t rc = write(fd, (const char*) buf + n, size - n);
     if (rc > 0) {
       n += rc;
     } else if (rc == 0) {
       /* something bad happened, print an error and abort */
       scr_err("Error writing %s: write(%d, %x, %ld) returned 0 @ %s:%d",
-	      file, fd, (char*) buf + n, size - n, __FILE__, __LINE__
+          file, fd, (const char*) buf + n, size - n, __FILE__, __LINE__
       );
       exit(1);
     } else { /* (rc < 0) */
@@ -346,12 +346,12 @@ ssize_t scr_write(const char* file, int fd, const void* buf, size_t size)
       if (retries) {
         /* print an error and try again */
         scr_err("Error writing %s: write(%d, %x, %ld) errno=%d %s @ %s:%d",
-                file, fd, (char*) buf + n, size - n, errno, strerror(errno), __FILE__, __LINE__
+                file, fd, (const char*) buf + n, size - n, errno, strerror(errno), __FILE__, __LINE__
         );
       } else {
         /* too many failed retries, give up */
         scr_err("Giving up write to %s: write(%d, %x, %ld) errno=%d %s @ %s:%d",
-                file, fd, (char*) buf + n, size - n, errno, strerror(errno), __FILE__, __LINE__
+                file, fd, (const char*) buf + n, size - n, errno, strerror(errno), __FILE__, __LINE__
         );
         exit(1);
       }
@@ -365,7 +365,7 @@ ssize_t scr_read_attempt(const char* file, int fd, void* buf, size_t size)
 {
   ssize_t n = 0;
   int retries = 10;
-  while (n < size)
+  while (n < (ssize_t) size)
   {
     int rc = read(fd, (char*) buf + n, size - n);
     if (rc  > 0) {
@@ -403,9 +403,9 @@ ssize_t scr_write_attempt(const char* file, int fd, const void* buf, size_t size
 {
   ssize_t n = 0;
   int retries = 10;
-  while (n < size)
+  while (n < (ssize_t) size)
   {
-    ssize_t rc = write(fd, (char*) buf + n, size - n);
+    ssize_t rc = write(fd, (const char*) buf + n, size - n);
     if (rc > 0) {
       n += rc;
     } else if (rc == 0) {
@@ -445,7 +445,7 @@ ssize_t scr_read_line(const char* file, int fd, char* buf, size_t size)
   /* read up to size-1 bytes from fd into buf until we find a newline or EOF */
   ssize_t n = 0;
   int found_end = 0;
-  while (n < size-1 && !found_end) {
+  while (n < (ssize_t) size-1 && !found_end) {
     /* read a character from the file */
     char c;
     ssize_t nread = scr_read(file, fd, &c, sizeof(c));
@@ -496,8 +496,15 @@ ssize_t scr_writef(const char* file, int fd, const char* format, ...)
   int n = vsnprintf(buf, sizeof(buf), format, argp);
   va_end(argp);
 
+  if (n < 0) {
+    scr_err("Failed to create formatted string for file %s @ %s:%d",
+            file, __FILE__, __LINE__
+            );
+    exit(1);
+  }
+
   /* check that our buffer was large enough */
-  if (sizeof(buf) <= n) {
+  if (sizeof(buf) <= (size_t) n) {
     /* TODO: instead of throwing a fatal error, we could allocate a bigger buffer and try again */
 
     scr_err("Buffer too small to hold formatted string for file %s @ %s:%d",
@@ -520,7 +527,7 @@ int scr_read_pad_n(int n, char** files, int* fds,
   int i = 0;
   size_t pos = 0;
   off_t nseek = 0;
-  off_t nread = 0;
+  size_t nread = 0;
 
   /* pass through files until we find the one containing our offset */
   while (i < n && (nseek + filesizes[i]) <= offset) {
@@ -552,7 +559,8 @@ int scr_read_pad_n(int n, char** files, int* fds,
     }
 
     /* read data from file and add to the total read count */
-    if (scr_read_attempt(files[i], fds[i], buf + nread, num_to_read) != num_to_read) {
+    if (scr_read_attempt(files[i], fds[i], buf + nread,
+                         num_to_read) != (ssize_t) num_to_read) {
       /* our read failed, return an error */
       return SCR_FAILURE;
     }
@@ -587,7 +595,7 @@ int scr_write_pad_n(int n, char** files, int* fds,
   int i = 0;
   size_t pos = 0;
   off_t nseek  = 0;
-  off_t nwrite = 0;
+  size_t nwrite = 0;
 
   /* pass through files until we find the one containing our offset */
   while (i < n && (nseek + filesizes[i]) <= offset) {
@@ -619,7 +627,8 @@ int scr_write_pad_n(int n, char** files, int* fds,
     }
 
     /* write data to file and add to the total write count */
-    if (scr_write_attempt(files[i], fds[i], buf + nwrite, num_to_write) != num_to_write) {
+    if (scr_write_attempt(files[i], fds[i], buf + nwrite,
+                          num_to_write) != (ssize_t) num_to_write) {
       /* our write failed, return an error */
       return SCR_FAILURE;
     }
@@ -752,7 +761,7 @@ int scr_crc32(const char* filename, uLong* crc)
     if (nread > 0) {
       *crc = crc32(*crc, (const Bytef*) buf, (uInt) nread);
     }
-  } while (nread == buffer_size);
+  } while (nread == (int) buffer_size);
 
   /* if we got an error, don't print anything and bailout */
   if (nread < 0) {
@@ -956,7 +965,7 @@ int scr_file_copy(
     }
 
     /* assume a short read means we hit the end of the file */
-    if (nread < buf_size) {
+    if ((size_t) nread < buf_size) {
       copying = 0;
     }
 

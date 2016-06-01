@@ -195,6 +195,7 @@ int scr_balance_init(void)
   }
 #endif
 
+  return 0;
 }
 
 int scr_balance_finalize(void)
@@ -206,6 +207,7 @@ int scr_balance_finalize(void)
     MPI_File_close(&time_log_fh);
   }
 #endif
+  return 0;
 }
 
 static int diff_time(struct timespec *x, struct timespec *y, struct timespec *result)
@@ -467,6 +469,7 @@ cleanup:
       scr_free(&file);
     }
   }
+  return 0;
 }
 
 static void propose_schedule(double time, int num_nodes, double measured_imbalance)
@@ -752,8 +755,4 @@ int scr_balance_complete_checkpoint(int valid)
   scr_balance_timestamp("BALANCE_COMPLETE_CHECKPOINT");
 
   return SCR_SUCCESS;
-}
-
-scr_reddesc *scr_balancer_get_reddesc()
-{
 }

@@ -570,7 +570,7 @@ int scr_compress_in_place(const char* file_src, const char* file_dst, unsigned l
   int compressing = 1;
   while (compressing && rc == SCR_SUCCESS) {
     /* seek to current location for reading */
-    if (lseek(fd_src, (off_t) pos_src, SEEK_SET) == (off_t) -1) {
+    if (lseek(fd_src, pos_src, SEEK_SET) == (off_t) -1) {
       scr_err("Seek to read position failed in %s @ %s:%d",
               file_src, __FILE__, __LINE__
       );
@@ -635,7 +635,7 @@ int scr_compress_in_place(const char* file_src, const char* file_dst, unsigned l
 
           /* check that we won't overrun our read position when we write out this data */
           off_t pos_end = pos_dst + have;
-          if (pos_end > pos_src && pos_src != filesize) {
+          if (pos_end > pos_src && filesize != (size_t) pos_src) {
             /* TODO: unwind what compression we have done if any,
              * for now we just make this a fatal error */
             scr_err("Failed to compress file in place %s @ %s:%d",
