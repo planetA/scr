@@ -545,6 +545,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   //    scr_comm_world, &request);
 
   if (scr_my_rank_world == 0) {
+    scr_balance_timestamp_nb("ALGORITHM_START");
     schedule = SCR_MALLOC(num_nodes * sizeof(*schedule));
     memset(schedule, 0, num_nodes * sizeof(*schedule));
 
@@ -610,19 +611,24 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     double imbalance = max / avg;
     scr_err("I predict imbalance of %f", imbalance);
 
-    if (measured_imbalance / imbalance > 1.10)
+    if (measured_imbalance / imbalance > 1.09)
       scr_balancer_do_migrate = 1;
     else
       scr_balancer_do_migrate = 0;
 
+    scr_balance_timestamp_nb("ALGORITHM_END");
   }
 
   MPI_Bcast(&scr_balancer_do_migrate, 1, MPI_INT, 0, scr_comm_world);
 
   if (scr_balancer_do_migrate) {
     scr_balance_reddesc_set_chunks(chunks);
+    scr_balance_timestamp("FORWARD_START");
     exchange_forward_and_backward(chunks, num_nodes);
+    scr_balance_timestamp("FORWARD_END");
+    scr_balance_timestamp("DUMP_START");
     dump_schedule(chunks, scr_ranks_world, num_nodes);
+    scr_balance_timestamp("DUMP_END");
   } else if (scr_my_rank_world == 0) {
     /* Chunks are not needed anymore */
     scr_free(&chunks);
