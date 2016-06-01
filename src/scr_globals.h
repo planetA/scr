@@ -204,4 +204,7 @@ extern int scr_disable_ft;           /* Disable checkpoints for fault tolerance.
 extern char *scr_balancer_debug;     /* File to dump debugging information */
 extern int scr_balancer_do_migrate;  /* If we are in the process of migration */
 extern int scr_after_migration;      /* If we are restoring after migration */
+
+extern int64_t scr_stat_file_sent;   /* Amount of data sent as files*/
+extern int64_t scr_stat_file_recv;   /* Amount of data received as files*/
 #endif

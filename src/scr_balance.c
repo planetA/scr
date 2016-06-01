@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 #include "scr_globals.h"
 
@@ -106,9 +107,27 @@ void scr_balance_timestamp_nb(const char *message)
   if (scr_my_rank_world == 0) {
     /* Print current time in milliseconds to log the work */
     struct timespec cur_step;
-    clock_gettime(CLOCK_MONOTONIC, &cur_step);
+    clock_gettime(CLOCK_REALTIME, &cur_step);
     long long unsigned time = cur_step.tv_sec * 1000 + cur_step.tv_nsec / 1000000;
     printf("SCR_BALANCER_TOKEN: %s: %llu\n", message, time);
+  }
+}
+
+void __scr_stat_emit(const char *message, int64_t value)
+{
+  int64_t max, min, avg, total;
+
+  MPI_Reduce(&value, &max,   1, MPI_INT64_T, MPI_MAX, 0, scr_comm_world);
+  MPI_Reduce(&value, &min,   1, MPI_INT64_T, MPI_MIN, 0, scr_comm_world);
+  MPI_Reduce(&value, &total, 1, MPI_INT64_T, MPI_SUM, 0, scr_comm_world);
+
+  if (scr_my_rank_world == 0) {
+    printf("SCR_STAT_TOKEN: %s: "
+           "max: %"PRId64", "
+           "min: %"PRId64", "
+           "avg: %"PRId64", "
+           "tot: %"PRId64"\n",
+           message, max, min, total/scr_ranks_world, total);
   }
 }
 
@@ -116,6 +135,8 @@ void scr_balance_timestamp_nb(const char *message)
 
 int scr_balance_init(void)
 {
+  scr_stat_emit(scr_stat_file_sent);
+  scr_stat_emit(scr_stat_file_recv);
 
   /* Init value of last time step for imbalance measurement. */
   memset(&last_step, 0, sizeof(last_step));

@@ -145,3 +145,7 @@ int scr_disable_ft = 0;           /* Disable checkpoints for fault tolerance. */
 char *scr_balancer_debug = NULL;  /* File to dump debugging information */
 int scr_balancer_do_migrate = 0;  /* If we are in the process of migration */
 int scr_after_migration = 0;      /* If we are restoring after migration */
+
+/* Following two statistics do not take metadata, like file names, into account. */
+int64_t scr_stat_file_sent = 0;   /* Amount of data sent as files*/
+int64_t scr_stat_file_recv = 0;   /* Amount of data received as files*/

@@ -155,6 +155,7 @@ static int scr_swap_files_copy(
         nread = 0;
       }
       MPI_Isend(buf_send, nread, MPI_BYTE, rank_send, 0, comm, &request[1]);
+      scr_stat_file_sent += nread;
       MPI_Wait(&request[1], &status[1]);
       if (nread < scr_mpi_buf_size) {
         sending = 0;
@@ -166,6 +167,7 @@ static int scr_swap_files_copy(
     if (receiving) {
       MPI_Wait(&request[0], &status[0]);
       MPI_Get_count(&status[0], MPI_BYTE, &nwrite);
+      scr_stat_file_recv += nwrite;
       if (scr_crc_on_copy && nwrite > 0) {
         *crc32_recv = crc32(*crc32_recv, (const Bytef*) buf_recv, (uInt) nwrite);
       }
@@ -302,6 +304,7 @@ static int scr_swap_files_move(
       /* send chunk (if nread is smaller than scr_mpi_buf_size,
        * then we've read the whole file) */
       MPI_Isend(buf_send, nread, MPI_BYTE, rank_send, 0, comm, &request[1]);
+      scr_stat_file_sent += nread;
       MPI_Wait(&request[1], &status[1]);
 
       /* check whether we've read the whole file */
@@ -314,6 +317,7 @@ static int scr_swap_files_move(
       /* count the number of bytes received */
       MPI_Wait(&request[0], &status[0]);
       MPI_Get_count(&status[0], MPI_BYTE, &nwrite);
+      scr_stat_file_recv += nwrite;
       if (scr_crc_on_copy && nwrite > 0) {
         *crc32_recv = crc32(*crc32_recv, (const Bytef*) buf_recv, (uInt) nwrite);
       }

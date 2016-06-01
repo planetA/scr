@@ -20,4 +20,7 @@ int scr_balance_finalize(void);
 void scr_balance_timestamp(const char *message);
 void scr_balance_timestamp_nb(const char *message);
 
+#define scr_stat_emit(x) __scr_stat_emit(#x, x)
+void __scr_stat_emit(const char *message, int64_t value);
+
 #endif /* SCR_BALANCE_H */

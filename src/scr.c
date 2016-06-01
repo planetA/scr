@@ -1140,6 +1140,8 @@ int SCR_Init()
     }
   }
 
+  scr_stat_file_recv = 0;
+  scr_stat_file_sent = 0;
   scr_balance_timestamp("INIT_END");
 
   /* all done, ready to go */

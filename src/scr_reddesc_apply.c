@@ -500,6 +500,8 @@ static int scr_reddesc_apply_migration(
 {
   int rc = SCR_SUCCESS;
 
+  scr_stat_emit(scr_stat_file_sent);
+  scr_stat_emit(scr_stat_file_recv);
   scr_balance_timestamp("APPLY_MIGRATION_START");
 
   /* get pointer to partner state structure */
@@ -550,6 +552,8 @@ static int scr_reddesc_apply_migration(
   }
 
   scr_balance_timestamp("APPLY_MIGRATION_END");
+  scr_stat_emit(scr_stat_file_sent);
+  scr_stat_emit(scr_stat_file_recv);
 
   return rc;
 }
