@@ -520,7 +520,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     if (scr_my_rank_world == 0) {
       FILE *file;
       char filename[SCR_MAX_FILENAME];
-      snprintf(filename, SCR_MAX_FILENAME, scr_balancer_debug, scr_ranks_world);
+      snprintf(filename, SCR_MAX_FILENAME, "%s.%d", scr_balancer_debug, scr_ranks_world);
 
       file = fopen(filename, "a");
       fwrite(&scr_ranks_world, sizeof(scr_ranks_world), 1, file);
