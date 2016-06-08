@@ -36,7 +36,7 @@ struct work_item {
   double work;
 };
 
-static int compare_work_item(const void *a, const void *b) {
+static int compare_work_item_work(const void *a, const void *b) {
   const struct work_item *aa = a;
   const struct work_item *bb = b;
   if (aa->work > bb->work) return -1;
@@ -52,6 +52,14 @@ static int compare_work_item_id(const void *a, const void *b) {
   return 0;
 }
 
+static int compare_work_item_node(const void *a, const void *b) {
+  const struct work_item *aa = a;
+  const struct work_item *bb = b;
+  if (aa->node > bb->node) return 1;
+  if (aa->node < bb->node) return -1;
+  return 0;
+}
+
 static int compare_work_item_ptr(const void *a, const void *b) {
   const struct work_item * const *pa = a;
   const struct work_item * const *pb = b;
@@ -59,6 +67,15 @@ static int compare_work_item_ptr(const void *a, const void *b) {
   const struct work_item *bb = *pb;
   if (aa->work > bb->work) return -1;
   if (aa->work < bb->work) return 1;
+  return 0;
+}
+
+static int compare_int(const void *a, const void *b)
+{
+  const int *aa = a;
+  const int *bb = b;
+  if (*aa > *bb) return 1;
+  if (*bb > *aa) return 0;
   return 0;
 }
 
@@ -235,6 +252,20 @@ static int diff_time(struct timespec *x, struct timespec *y, struct timespec *re
 
 #define HOSTNAME_MAX 20
 
+struct matching {
+  int sender;
+  int receiver;
+};
+
+static int compare_matching(const void *a, const void *b)
+{
+  const struct matching *aa = a;
+  const struct matching *bb = b;
+  if (aa->receiver > bb->receiver) return 1;
+  if (aa->receiver < bb->receiver) return -1;
+  return 0;
+}
+
 /*
  * This function should exchange forward and backward migration matrices.
  *
@@ -253,11 +284,11 @@ static int diff_time(struct timespec *x, struct timespec *y, struct timespec *re
  */
 void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes)
 {
-  int *current_schedule;
+  struct work_item *cur_schedule;
   size_t rank_vector_size = scr_ranks_world * sizeof(int);
 
   if (scr_my_rank_world == 0) {
-    current_schedule = SCR_MALLOC(scr_ranks_world * sizeof(int));
+    cur_schedule = SCR_MALLOC(scr_ranks_world * sizeof(*cur_schedule));
   }
 
   int node_id;
@@ -265,144 +296,175 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
 
   MPI_Comm_rank(scr_comm_node_across, &node_id);
   MPI_Bcast(&node_id, 1, MPI_INT, 0, scr_comm_node);
-  MPI_Gather(&node_id, 1, MPI_INT,
-             current_schedule, 1, MPI_INT,
+
+  struct work_item cur_schedule_item = {
+    .id = scr_my_rank_world,
+    .node = node_id,
+    .work = 0
+  };
+
+  MPI_Gather(&cur_schedule_item, sizeof(cur_schedule_item), MPI_BYTE,
+             cur_schedule, sizeof(cur_schedule_item), MPI_BYTE,
              0, scr_comm_world);
+
+  int cur_match;
+  struct matching * matching;
 
   int *forward, *forward_len;
   int *node_to_rank, *node_to_rank_len;
+
+  int *rank_to_node_cur;
+  int *rank_to_node_new;
+
   if (scr_my_rank_world == 0) {
-    /* Generate forward matrix */
-    /* TODO for Maksym: requires huge amount of memory on large
-       scale. Do not expect to work efficiently more than with 1000
-       Processes */
-    /* Size of forward and backward matrices is simple:
-     *     N_ranks * N_ranks
-     *
-     * Explanation: At most each rank wants to migrate. At most to all
-     * ranks are on the same node.
-     */
-    forward = (int *)SCR_MALLOC(rank_vector_size);
-    forward_len = (int *)SCR_MALLOC(rank_vector_size);
+    qsort(cur_schedule, scr_ranks_world, sizeof(*cur_schedule), compare_work_item_node);
+    qsort(new_schedule, scr_ranks_world, sizeof(*new_schedule), compare_work_item_node);
 
-    /* Shows the ranks which currently run on each node */
-    node_to_rank = (int *)SCR_MALLOC(rank_vector_size * num_nodes);
-    node_to_rank_len = (int *)SCR_MALLOC(sizeof(int) * num_nodes);
-    memset(node_to_rank_len, 0, sizeof(int) * num_nodes);
+    rank_to_node_cur = (int *)SCR_MALLOC(scr_ranks_world*sizeof(int));
+    for (int i = 0; i < scr_ranks_world; i++)
+      rank_to_node_cur[cur_schedule[i].id] = cur_schedule[i].node;
+
+    rank_to_node_new = (int *)SCR_MALLOC(scr_ranks_world*sizeof(int));
+    for (int i = 0; i < scr_ranks_world; i++)
+      rank_to_node_new[new_schedule[i].id] = new_schedule[i].node;
+
+    cur_match = 0;
+    matching = (struct matching *)SCR_MALLOC(scr_ranks_world*sizeof(*matching));
+
+    int cur_recv = 0, next_node = -1, node_start = 0;
     for (int i = 0; i < scr_ranks_world; i++) {
-      int node_id = current_schedule[i];
-      assert(node_id < num_nodes);
+      if (rank_to_node_new[new_schedule[i].id] == rank_to_node_cur[new_schedule[i].id])
+        continue;
 
-      int cur_len = node_to_rank_len[node_id]++;
-      node_to_rank[scr_ranks_world * node_id + cur_len] = i;
-    }
+      /* if (new_schedule[i].node == cur_schedule[new_schedule[i].id].node) */
+      /*   continue; */
 
-    for (int i = 0; i < scr_ranks_world; i++) {
-      int rank_from = new_schedule[i].id;
-      int new_node = new_schedule[i].node;
+      matching[cur_match].sender = new_schedule[i].id;
+      matching[cur_match].receiver = cur_schedule[cur_recv].id;
 
-      assert((node_to_rank_len[new_node] > 0) &&
-             (node_to_rank_len[new_node] < scr_ranks_world));
+      cur_match++;
 
-      int current_node = current_schedule[rank_from];
-      if (new_node != current_node) {
-        forward[rank_from] = new_node * scr_ranks_world;
-        forward_len[rank_from] = node_to_rank_len[new_node];
+      /* We need to update pointers for exchange */
+      if ((i + 1 < scr_ranks_world) &&
+          (new_schedule[i].node == new_schedule[i + 1].node)) {
+        /* We stay on the same node */
+        if ((cur_recv + 1 < scr_ranks_world) &&
+            (cur_schedule[cur_recv].node == cur_schedule[cur_recv + 1].node)) {
+          cur_recv++;
+        } else if (cur_schedule[cur_recv].node + 1 == cur_schedule[cur_recv + 1].node) {
+          next_node = cur_recv + 1;
+          cur_recv = node_start;
+        } else {
+          assert(cur_recv + 1 == scr_ranks_world);
+        }
+      } else if (new_schedule[i].node + 1 == new_schedule[i + 1].node) {
+        /* In the new schedule we moved to the next node */
+        if (next_node > cur_recv) {
+          /* We've already have seen the next node in the receiver list */
+          cur_recv = next_node;
+        } else {
+          do {
+            cur_recv ++;
+            assert(cur_recv < scr_ranks_world);
+          }
+          while (cur_schedule[cur_recv - 1].node == cur_schedule[cur_recv].node);
+          node_start = cur_recv;
+        }
       } else {
-        forward[rank_from] = 0;
-        forward_len[rank_from] = 0;
+        assert(i + 1 == scr_ranks_world);
       }
     }
+
+    /* Now we tell the senders where to send. If a rank gets -1, it does not send */
+
+    forward = SCR_MALLOC(scr_ranks_world*sizeof(*forward));
+
+    for (int i = 0; i < scr_ranks_world; i++)
+      forward[i] = -1;
+    for (int i = 0; i < cur_match; i++)
+      forward[matching[i].sender] = matching[i].receiver;
   }
 
-  int my_forward_len;
-  MPI_Scatter(forward_len, 1, MPI_INT,
-              &my_forward_len, 1, MPI_INT,
+  int receiver;
+  MPI_Scatter(forward, 1, MPI_INT,
+              &receiver, 1, MPI_INT,
               0, scr_comm_world);
 
-  /* Add one to ensure the array is alwais allocated,
-   * because my_forward_len is allowed to be 0. */
-  int *my_forward = (int *)SCR_MALLOC((my_forward_len + 1) * sizeof(int));
+  int senders_len, *send_count, *displs;
+  struct matching *senders;
+  if (scr_my_rank_world == 0) {
+    send_count = SCR_MALLOC(scr_ranks_world*sizeof(*send_count));
+    displs = SCR_MALLOC(scr_ranks_world*sizeof(*displs));
+    /* Now we tell the receivers who is going to send them */
+    qsort(matching, cur_match, sizeof(*matching), compare_matching);
 
-  MPI_Scatterv(node_to_rank, forward_len, forward, MPI_INT,
-               my_forward, my_forward_len, MPI_INT, 0, scr_comm_world);
+    for (int i = 0; i < scr_ranks_world; i++) {
+      send_count[i] = 0;
+    }
 
-  int my_partner = -1;
+    {
+      int i = 0;
+      while (i < cur_match) {
+        int count = 0;
+        do {
+          count++;
+          i++;
+        } while((i < cur_match) &&
+                (matching[i - 1].receiver == matching[i].receiver));
+        send_count[matching[i-1].receiver] = count * sizeof(struct matching);
+      }
+    }
 
-  if (my_forward_len)
-    my_partner= my_forward[rand() % my_forward_len];
-
-
-  int *backward;
-  backward = (int *)SCR_MALLOC(rank_vector_size);
-
-  if (!backward) {
-    scr_abort(-1, "Failed to allocate memory for local backward vector of size %d @ %s:%d",
-              rank_vector_size, __FILE__, __LINE__);
-  }
-
-  MPI_Allgather(&my_partner, 1, MPI_INT,
-                backward, 1, MPI_INT,
-                scr_comm_world);
-
-  int my_backward_count = 0;
-  int *my_backward = NULL;
-
-  for (int i = 0; i < scr_ranks_world; i++) {
-    if (backward[i] == scr_my_rank_world) {
-      my_backward_count++;
-      /* I have to get a message from i */
-      my_backward = (int *)SCR_REALLOC(my_backward, my_backward_count);
-      my_backward[my_backward_count - 1] = i;
+    displs[0] = 0;
+    for (int i = 1; i < scr_ranks_world; i++) {
+      displs[i] = displs[i-1] + send_count[i-1];
     }
   }
 
-#if 0
-  if (my_partner != -1)
-    printf("Rank %5d sends a message to %d\n", scr_my_rank_world, my_partner);
+  MPI_Scatter(send_count, 1, MPI_INT,
+              &senders_len, 1, MPI_INT,
+              0, scr_comm_world);
 
-  fflush(stdout);
+  senders = (struct matching *)SCR_MALLOC(senders_len);
 
-  MPI_Barrier(MPI_COMM_WORLD);
+  MPI_Scatterv(matching, send_count, displs, MPI_BYTE,
+               senders, senders_len, MPI_BYTE,
+               0, scr_comm_world);
 
-  int m_len = 1024;
-  char m_get[1024];
-  int gets = 0;
-  int offs = 0;
-  snprintf(m_get + offs, m_len - offs, "Rank %5d gets a message from ", scr_my_rank_world);
-  offs = strlen(m_get);
-
-  for (int i = 0; i < scr_ranks_world; i++) {
-    if (backward[i] == scr_my_rank_world) {
-      snprintf(m_get + offs, m_len - offs, " %5d", i);
-      offs = strlen(m_get);
-      gets = 1;
-    }
-  }
-  if (gets) {
-    snprintf(m_get + offs, m_len - offs, "\n");
-    printf(m_get);
-  }
-#endif
 
   scr_reddesc_migration *state = scr_balance_reddesc_migration();
 
   assert(state->backward == NULL);
   assert(state->backward_count == 0);
 
-  state->forward = my_partner;
-  state->backward = my_backward;
-  state->backward_count = my_backward_count;
+  senders_len /= sizeof(struct matching);
 
-  scr_free(&my_forward);
-  scr_free(&backward);
+  if (senders_len > 0) {
+    int *backward = (int *)SCR_MALLOC(senders_len * sizeof(*backward));
+    for (int i = 0; i < senders_len; i++) {
+      assert(senders[i].receiver == scr_my_rank_world);
+      backward[i] = senders[i].sender;
+    }
+    qsort(backward, senders_len, sizeof(*backward), compare_int);
+    state->backward = backward;
+    state->backward_count = senders_len;
+  } else {
+    state->backward = NULL;
+    state->backward_count = 0;
+  }
+
+  state->forward = receiver;
+
+  scr_free(&senders);
 
   if (scr_my_rank_world == 0) {
+    scr_free(&displs);
+    scr_free(&send_count);
     scr_free(&forward);
-    scr_free(&forward_len);
-    scr_free(&node_to_rank);
-    scr_free(&node_to_rank_len);
-    scr_free(&current_schedule);
+    scr_free(&matching);
+    scr_free(&rank_to_node_new);
+    scr_free(&rank_to_node_cur);
+    scr_free(&cur_schedule);
   }
 }
 
@@ -554,7 +616,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     schedule = SCR_MALLOC(num_nodes * sizeof(*schedule));
     memset(schedule, 0, num_nodes * sizeof(*schedule));
 
-    qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item);
+    qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item_work);
 
     struct work_item **per_id_chunks;
     int *node_list;
