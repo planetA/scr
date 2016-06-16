@@ -331,48 +331,38 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
     cur_match = 0;
     matching = (struct matching *)SCR_MALLOC(scr_ranks_world*sizeof(*matching));
 
-    int cur_recv = 0, next_node = -1, node_start = 0;
+    int cur_recv = -1, next_node = -1, node_start = 0;
     for (int i = 0; i < scr_ranks_world; i++) {
       if (rank_to_node_new[new_schedule[i].id] == rank_to_node_cur[new_schedule[i].id])
         continue;
 
-      /* if (new_schedule[i].node == cur_schedule[new_schedule[i].id].node) */
-      /*   continue; */
+      /* We need to update pointers for exchange */
+      if (new_schedule[i].node == cur_schedule[cur_recv + 1].node) {
+        cur_recv ++;
+
+        if (cur_schedule[cur_recv].node != cur_schedule[cur_recv - 1].node)
+          node_start = cur_recv;
+
+      } else if (new_schedule[i].node > cur_schedule[cur_recv + 1].node) {
+        /* Roll forward */
+        if (next_node > cur_recv) {
+          cur_recv = next_node;
+        }
+
+        while (cur_schedule[cur_recv].node < new_schedule[i].node)
+          cur_recv++;
+        node_start = cur_recv;
+      } else {
+        /* Roll backward */
+        cur_recv = node_start;
+      }
+
+      assert(new_schedule[i].node == cur_schedule[cur_recv].node);
 
       matching[cur_match].sender = new_schedule[i].id;
       matching[cur_match].receiver = cur_schedule[cur_recv].id;
 
       cur_match++;
-
-      /* We need to update pointers for exchange */
-      if ((i + 1 < scr_ranks_world) &&
-          (new_schedule[i].node == new_schedule[i + 1].node)) {
-        /* We stay on the same node */
-        if ((cur_recv + 1 < scr_ranks_world) &&
-            (cur_schedule[cur_recv].node == cur_schedule[cur_recv + 1].node)) {
-          cur_recv++;
-        } else if (cur_schedule[cur_recv].node + 1 == cur_schedule[cur_recv + 1].node) {
-          next_node = cur_recv + 1;
-          cur_recv = node_start;
-        } else {
-          assert(cur_recv + 1 == scr_ranks_world);
-        }
-      } else if (new_schedule[i].node + 1 == new_schedule[i + 1].node) {
-        /* In the new schedule we moved to the next node */
-        if (next_node > cur_recv) {
-          /* We've already have seen the next node in the receiver list */
-          cur_recv = next_node;
-        } else {
-          do {
-            cur_recv ++;
-            assert(cur_recv < scr_ranks_world);
-          }
-          while (cur_schedule[cur_recv - 1].node == cur_schedule[cur_recv].node);
-          node_start = cur_recv;
-        }
-      } else {
-        assert(i + 1 == scr_ranks_world);
-      }
     }
 
     /* Now we tell the senders where to send. If a rank gets -1, it does not send */
