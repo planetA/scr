@@ -381,7 +381,9 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
               0, scr_comm_world);
 
   int senders_len, *send_count, *displs;
-  struct matching *senders;
+  struct matching *senders, *scattered_matching;
+  int max_count = 0;
+
   if (scr_my_rank_world == 0) {
     send_count = SCR_MALLOC(scr_ranks_world*sizeof(*send_count));
     displs = SCR_MALLOC(scr_ranks_world*sizeof(*displs));
@@ -401,26 +403,39 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
           i++;
         } while((i < cur_match) &&
                 (matching[i - 1].receiver == matching[i].receiver));
+        if (count > max_count)
+          max_count = count;
         send_count[matching[i-1].receiver] = count * sizeof(struct matching);
       }
     }
+
+    scattered_matching = (struct matching *)SCR_MALLOC(max_count * scr_ranks_world * sizeof(struct matching));
+
+    /* XXX: TODO for Maksym rewrite this */
 
     displs[0] = 0;
     for (int i = 1; i < scr_ranks_world; i++) {
       displs[i] = displs[i-1] + send_count[i-1];
     }
+
+    for (int i = 0; i < scr_ranks_world; i++) {
+      for (int j = 0; j < max_count; j++) {
+        scattered_matching[i*max_count + j] = matching[displs[i] / sizeof(struct matching) + j];
+      }
+    }
   }
 
+
+  MPI_Bcast(&max_count, 1, MPI_INT, 0, scr_comm_world);
   MPI_Scatter(send_count, 1, MPI_INT,
               &senders_len, 1, MPI_INT,
               0, scr_comm_world);
 
-  senders = (struct matching *)SCR_MALLOC(senders_len);
+  senders = (struct matching *)SCR_MALLOC(max_count);
 
-  MPI_Scatterv(matching, send_count, displs, MPI_BYTE,
-               senders, senders_len, MPI_BYTE,
-               0, scr_comm_world);
-
+  MPI_Scatter(scattered_matching, max_count * sizeof(struct matching), MPI_BYTE,
+              senders, max_count * sizeof(struct matching), MPI_BYTE,
+              0, scr_comm_world);
 
   scr_reddesc_migration *state = scr_balance_reddesc_migration();
 
