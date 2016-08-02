@@ -1468,7 +1468,7 @@ int scr_hash_read(const char* file, scr_hash* hash)
   }
 
   /* close the hash file */
-  if (scr_close(file, fd) != SCR_SUCCESS) {
+  if (scr_close_read(file, fd) != SCR_SUCCESS) {
     rc = SCR_FAILURE;
   }
 
