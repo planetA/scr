@@ -145,6 +145,21 @@ int scr_close(const char* file, int fd)
   return SCR_SUCCESS;
 }
 
+/* do not fsync and close read only file */
+int scr_close_read(const char* file, int fd)
+{
+  /* now close the file */
+  if (close(fd) != 0) {
+    /* hit an error, print message */
+    scr_err("Closing file descriptor %d for file %s: errno=%d %s @ %s:%d",
+            fd, file, errno, strerror(errno), __FILE__, __LINE__
+            );
+    return SCR_FAILURE;
+  }
+
+  return SCR_SUCCESS;
+}
+
 int scr_file_lock_read(const char* file, int fd)
 {
   #ifdef SCR_FILE_LOCK_USE_FLOCK

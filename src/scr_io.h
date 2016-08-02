@@ -71,6 +71,8 @@ int scr_open(const char* file, int flags, ...);
 
 /* close file with an fsync */
 int scr_close(const char* file, int fd);
+/* close file without an fsync */
+int scr_close_read(const char* file, int fd);
 
 /* get and release file locks */
 int scr_file_lock_read(const char* file, int fd);
