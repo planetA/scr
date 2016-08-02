@@ -15,6 +15,7 @@ int scr_balance_complete_checkpoint(int valid);
 
 int scr_balance_init(void);
 int scr_balance_finalize(void);
+int scr_balance_finalize_promise(void);
 
 /* Emit timestamp for performance measurements */
 void scr_balance_timestamp(const char *message);

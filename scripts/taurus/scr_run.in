@@ -190,10 +190,21 @@ while [ 1 ] ; do
 
   while [ 1 ] ; do
     if [ $use_scr_watchdog -eq 0 ]; then
-      export TOTALVIEW=$(which totalview)
-      taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
-      #taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
-      #srun --nodelist $script_node $exclude $node_distribution "$@"
+
+      if [ "$SCR_BALANCE" = "1" ] ; then
+        export SCR_BALANCE_PROMISE=$(mktemp -u -t scr_balancer.XXXXXX).fifo-$RANDOM-$$
+        mkfifo $SCR_BALANCE_PROMISE
+        export TOTALVIEW=$(which totalview)
+        echo "BEFORE_MPI_RUNRSH $(($(date +%s%N)/1000000))"
+        taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@" &
+        #taskset 0xFFFFFFFF mpirun_rsh -tv -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+        #srun --nodelist $script_node $exclude $node_distribution "$@"
+        echo "AFTER_MPI_RUNRSH $(($(date +%s%N)/1000000))"
+        read line < $SCR_BALANCE_PROMISE
+        echo "READ $line"
+      else
+        taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
+      fi
     else
       echo "$prog: Attempting to start watchdog process."
       # need to get job step id of the srun command
@@ -215,19 +226,19 @@ while [ 1 ] ; do
     fi
 
     # Did we stop because of migration?
-    $bindir/scr_migration --dir $prefix;
-    if [ $? == 0 ] ; then
-      echo "$prog: Migration condition detected, restarting run."
-      if [ -f $prefix/.scr/balancer.scr ]
-      then
-        SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
-        node_distribution="--distribution=arbitrary -w $SLURM_HOSTFILE"
-      else
-        SLURM_HOSTFILE=""
-        node_distribution="--distribution=block"
+    if [ "$SCR_BALANCE" = "1" ] ; then
+      $bindir/scr_migration --dir $prefix;
+      if [ $? == 0 ] ; then
+        echo "$prog: Migration condition detected, restarting run."
+        if [ -f $prefix/.scr/balancer.scr ] ; then
+          SLURM_HOSTFILE="$prefix/.scr/balancer.scr"
+          node_distribution="--distribution=arbitrary -w $SLURM_HOSTFILE"
+        else
+          SLURM_HOSTFILE=""
+          node_distribution="--distribution=block"
+        fi
+        continue
       fi
-
-      continue
     fi
     break
   done

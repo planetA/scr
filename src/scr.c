@@ -189,6 +189,10 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     MPI_Barrier(scr_comm_world);
 
     /* and exit the job */
+    if (scr_balancer_do_migrate) {
+      scr_balance_finalize_promise();
+      MPI_Finalize();
+    }
     exit(0);
   }
 

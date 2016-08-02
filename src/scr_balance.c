@@ -19,6 +19,9 @@
 
 #define USE_MPI_IO 0
 
+static int promise_fd = -1;
+static char *promise_file_name = NULL;
+
 static struct timespec last_step;
 static struct timeval last_timeval;
 static MPI_Datatype MPI_WORK_ITEM = 0;
@@ -211,6 +214,55 @@ int scr_balance_init(void)
     }
   }
 #endif
+
+  /* Initialize pipe */
+  {
+    int node_id;
+    int rank_node;
+
+    MPI_Comm_rank(scr_comm_node_across, &node_id);
+    MPI_Comm_rank(scr_comm_node, &rank_node);
+
+    if (rank_node == 0) {
+      char *file;
+      if ((file = getenv("SCR_BALANCE_PROMISE")) != NULL) {
+        /* There is a pipe which we should use to send a promise to
+           migrate. */
+        int fd;
+        if (access(file, F_OK ) != -1) {
+          // file exists
+          fd = scr_open(file, O_WRONLY);
+          if (fd < 0) {
+            scr_err("Opening file for write: scr_open(%s) errno=%d %s @ %s:%d",
+                    file, errno, strerror(errno), __FILE__, __LINE__);
+            goto error;
+          }
+
+          promise_fd = fd;
+          promise_file_name = file;
+        } else {
+          // wrong node
+        }
+      }
+    }
+  }
+
+  return 0;
+
+ error:
+  return -1;
+}
+
+int scr_balance_finalize_promise(void)
+{
+  if (promise_file_name) {
+    const char *message = "PROMISE_END\n";
+    scr_write(promise_file_name, promise_fd, message, strlen(message));
+    scr_close(promise_file_name, promise_fd);
+  }
+
+  /* we're no longer in an initialized state */
+  scr_initialized = 0;
 
   return 0;
 }
