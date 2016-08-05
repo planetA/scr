@@ -179,10 +179,6 @@ int scr_balance_init(void)
 
     MPI_Type_create_struct(NITEMS, blocklengths, disp, types, &MPI_WORK_ITEM);
     MPI_Type_commit(&MPI_WORK_ITEM);
-
-    MPI_Aint size;
-    MPI_Get_address((&sample)+1, &size);
-    size = MPI_Aint_diff(size, base);
 #undef NITEMS
   }
 
