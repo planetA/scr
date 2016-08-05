@@ -186,10 +186,6 @@ int scr_balance_init(void)
 #undef NITEMS
   }
 
-  /* Generate random number for matching algorithm. */
-  srand(time(NULL) + scr_my_rank_world);
-  srand(1 + scr_my_rank_world);
-
 #if USE_MPI_IO
   if (scr_balancer_debug) {
     int rc;
