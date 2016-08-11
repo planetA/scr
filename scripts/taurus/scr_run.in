@@ -191,7 +191,7 @@ while [ 1 ] ; do
   while [ 1 ] ; do
     if [ $use_scr_watchdog -eq 0 ]; then
 
-      if [ "$SCR_BALANCE" = "1" ] ; then
+      if [ "$SCR_BALANCER" = "1" ] ; then
         export SCR_BALANCE_PROMISE=$(mktemp -u -t scr_balancer.XXXXXX).fifo-$RANDOM-$$
         mkfifo $SCR_BALANCE_PROMISE
         export TOTALVIEW=$(which totalview)
@@ -226,7 +226,7 @@ while [ 1 ] ; do
     fi
 
     # Did we stop because of migration?
-    if [ "$SCR_BALANCE" = "1" ] ; then
+    if [ "$SCR_BALANCER" = "1" ] ; then
       $bindir/scr_migration --dir $prefix;
       if [ $? == 0 ] ; then
         echo "$prog: Migration condition detected, restarting run."
