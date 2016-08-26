@@ -201,7 +201,6 @@ while [ 1 ] ; do
         #srun --nodelist $script_node $exclude $node_distribution "$@"
         echo "AFTER_MPI_RUNRSH $(($(date +%s%N)/1000000))"
         read line < $SCR_BALANCE_PROMISE
-        echo "READ $line"
       else
         taskset 0xFFFFFFFF mpirun_rsh -ssh -export-all -hostfile $SLURM_HOSTFILE "$@"
       fi
