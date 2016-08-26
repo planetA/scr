@@ -17,17 +17,12 @@
 #define MSEC 1000*USEC
 #define  SEC 1000*MSEC
 
-#define USE_MPI_IO 0
-
 static int promise_fd = -1;
 static char *promise_file_name = NULL;
 
 static struct timespec last_step;
 static struct timeval last_timeval;
 static MPI_Datatype MPI_WORK_ITEM = 0;
-#if USE_MPI_IO
-static MPI_File time_log_fh;
-#endif
 
 /*
  * Comparison function for qsort to sort doubles in descending order.
@@ -182,31 +177,6 @@ int scr_balance_init(void)
 #undef NITEMS
   }
 
-#if USE_MPI_IO
-  if (scr_balancer_debug) {
-    int rc;
-    int amode = (MPI_MODE_APPEND | MPI_MODE_CREATE |
-                 MPI_MODE_WRONLY);
-    MPI_Info info = MPI_INFO_NULL;
-
-    char file[SCR_MAX_FILENAME];
-    snprintf(file, SCR_MAX_FILENAME, "/scratch/s9951545/scr_balancer.%d.debug", scr_ranks_world);
-    rc = MPI_File_open(MPI_COMM_WORLD, file, amode, info, &time_log_fh);
-    if (rc != MPI_SUCCESS) {
-      scr_abort(-1, "Failed to open file %s @ %s:%d", file,
-                __FILE__, __LINE__);
-    }
-
-    rc = MPI_File_set_view(time_log_fh, 0,
-                      MPI_DOUBLE, MPI_DOUBLE, "native",
-                      info);
-    if (rc != MPI_SUCCESS) {
-      scr_abort(-1, "Failed to set view for file @ %s:%d",
-                __FILE__, __LINE__);
-    }
-  }
-#endif
-
   /* Initialize pipe */
   {
     int node_id;
@@ -263,11 +233,6 @@ int scr_balance_finalize(void)
 {
   MPI_Type_free(&MPI_WORK_ITEM);
 
-#if USE_MPI_IO
-  if (scr_balancer_debug) {
-    MPI_File_close(&time_log_fh);
-  }
-#endif
   return 0;
 }
 
@@ -603,23 +568,6 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
 
   if (scr_balancer_debug) {
     int rc;
-#if USE_MPI_IO
-    MPI_Status status;
-
-    time = (double)scr_my_rank_world;
-    rc = MPI_File_write_ordered(time_log_fh, &time, 1, MPI_DOUBLE, &status);
-    if (rc != MPI_SUCCESS) {
-      scr_abort(-1, "Failed to write to file @ %s:%d",
-                __FILE__, __LINE__);
-    }
-
-    int count;
-    MPI_Get_count(&status, MPI_DOUBLE, &count);
-    if (count != 1) {
-      scr_abort(-1, "Wrong number of values has been written: %d @ %s:%d",
-                count, __FILE__, __LINE__);
-    }
-#else
     double *current_time;
     if (scr_my_rank_world == 0) {
       current_time = (double *)SCR_MALLOC(scr_ranks_world * sizeof(double));
@@ -644,7 +592,6 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
       fclose(file);
       scr_free(&current_time);
     }
-#endif
 
   }
 
