@@ -315,7 +315,7 @@ int scr_meta_check_filename(const scr_meta* meta, const char* filename)
     if (strcmp(filename, filename_meta) == 0) {
       return SCR_SUCCESS;
     }
-  } 
+  }
   return SCR_FAILURE;
 }
 
@@ -327,7 +327,7 @@ int scr_meta_check_filetype(const scr_meta* meta, const char* filetype)
     if (strcmp(filetype, filetype_meta) == 0) {
       return SCR_SUCCESS;
     }
-  } 
+  }
   return SCR_FAILURE;
 }
 
