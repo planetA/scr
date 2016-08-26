@@ -24,6 +24,8 @@ static struct timespec last_step;
 static struct timeval last_timeval;
 static MPI_Datatype MPI_WORK_ITEM = 0;
 
+static const double scr_imbalance_threshold = 1.1;
+
 /*
  * Comparison function for qsort to sort doubles in descending order.
  */
@@ -674,10 +676,12 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     double imbalance = max / avg;
     scr_err("I predict imbalance of %f", imbalance);
 
-    if (measured_imbalance / imbalance > 1.09)
+    if (measured_imbalance > scr_imbalance_threshold &&
+        scr_imbalance_threshold > imbalance)
       scr_balancer_do_migrate = 1;
-    else
+    else {
       scr_balancer_do_migrate = 0;
+    }
 
     scr_balance_timestamp_nb("ALGORITHM_END");
   }
