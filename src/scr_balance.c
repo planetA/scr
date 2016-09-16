@@ -678,7 +678,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     scr_err("I predict imbalance of %f", imbalance);
 
     if (measured_imbalance > scr_imbalance_threshold &&
-        scr_imbalance_threshold > imbalance)
+        scr_imbalance_threshold > imbalance && !scr_balancer_dry_run)
       scr_balancer_do_migrate = 1;
     else {
       scr_balancer_do_migrate = 0;

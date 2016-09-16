@@ -507,6 +507,11 @@ static int scr_get_params()
   }
 
   /* whether to activate checkpoint-migrate-restart */
+  if ((value = scr_param_get("SCR_BALANCER_DRY_RUN")) != NULL) {
+    scr_balancer_dry_run = atoi(value);
+  }
+
+  /* whether to activate checkpoint-migrate-restart */
   if ((value = scr_param_get("SCR_DISABLE_FT")) != NULL) {
     scr_disable_ft = atoi(value);
   }
