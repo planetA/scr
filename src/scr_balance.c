@@ -2,6 +2,7 @@
  * Maksym Planeta, 2016
  */
 
+#define _GNU_SOURCE
 #include <time.h>
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -9,6 +10,9 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <sched.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 #include "scr_globals.h"
 
@@ -180,13 +184,11 @@ int scr_balance_init(void)
   }
 
   /* Initialize pipe */
+  int rank_node;
+
+  MPI_Comm_rank(scr_comm_node, &rank_node);
+
   {
-    int node_id;
-    int rank_node;
-
-    MPI_Comm_rank(scr_comm_node_across, &node_id);
-    MPI_Comm_rank(scr_comm_node, &rank_node);
-
     if (rank_node == 0) {
       char *file;
       if ((file = getenv("SCR_BALANCE_PROMISE")) != NULL) {
@@ -209,6 +211,19 @@ int scr_balance_init(void)
         }
       }
     }
+  }
+
+  {
+    int cpucount = sysconf(_SC_NPROCESSORS_ONLN);
+
+    pid_t mypid = getpid();
+    cpu_set_t myset;
+
+    CPU_ZERO(&myset);
+    CPU_SET(rank_node % cpucount, &myset);
+    /* CPU_SET((rank_node + 1) % cpucount, &myset); */
+    /* CPU_SET((rank_node + cpucount - 1) % cpucount, &myset); */
+    sched_setaffinity(mypid, sizeof(myset), &myset);
   }
 
   return 0;
