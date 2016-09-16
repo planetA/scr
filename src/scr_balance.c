@@ -612,8 +612,16 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
 
   if (scr_my_rank_world == 0) {
     scr_balance_timestamp_nb("ALGORITHM_START");
+
     schedule = SCR_MALLOC(num_nodes * sizeof(*schedule));
     memset(schedule, 0, num_nodes * sizeof(*schedule));
+
+    /* XXX: Locality hack */
+    int *cur_schedule = SCR_MALLOC(scr_ranks_world * sizeof(*cur_schedule));
+
+    for (int i = 0; i < scr_ranks_world; i++)
+      cur_schedule[chunks[i].id] = chunks[i].node;
+    /* XXX: Locality hack */
 
     qsort(chunks, scr_ranks_world, sizeof(*chunks), compare_work_item_work);
 
@@ -643,7 +651,22 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
       /* For each rank with specific local id */
       for (int j = 0; j < num_nodes; j++) {
         int min_node = 0;
+        int native = 0;
         for (int k = 0; k < free_nodes; k++) {
+
+          /* XXX: Locality hack */
+          if (cur_schedule[per_id_chunks[j]->id] == node_list[k] &&
+              (schedule[node_list[k]] / scr_imbalance_threshold
+               < schedule[node_list[min_node]])) {
+            native = 1;
+            min_node = k;
+            continue;
+          } else if (native && schedule[node_list[k]]
+                     < schedule[node_list[min_node]] / scr_imbalance_threshold) {
+            min_node = k;
+          } else
+          /* XXX: Locality hack */
+
           if (schedule[node_list[k]] < schedule[node_list[min_node]])
             min_node = k;
         }
@@ -659,8 +682,12 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
         /* Replace the last node in the list for the just allocated one. */
         node_list[min_node] = node_list[free_nodes];
       }
+
     }
 
+    /* XXX: Locality hack */
+    scr_free(&cur_schedule);
+    /* XXX: Locality hack */
     scr_free(&per_id_chunks);
     scr_free(&node_list);
 
