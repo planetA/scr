@@ -442,7 +442,7 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
               &senders_len, 1, MPI_INT,
               0, scr_comm_world);
 
-  senders = (struct matching *)SCR_MALLOC(max_count);
+  senders = (struct matching *)SCR_MALLOC(max_count*sizeof(senders));
 
   MPI_Scatter(scattered_matching, max_count * sizeof(struct matching), MPI_BYTE,
               senders, max_count * sizeof(struct matching), MPI_BYTE,
@@ -481,6 +481,7 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
     scr_free(&rank_to_node_new);
     scr_free(&rank_to_node_cur);
     scr_free(&cur_schedule);
+    scr_free(&scattered_matching);
   }
 }
 
@@ -619,7 +620,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     struct work_item **per_id_chunks;
     int *node_list;
     int free_nodes;
-    per_id_chunks= SCR_MALLOC(scr_ranks_world / num_nodes * sizeof(*per_id_chunks));
+    per_id_chunks= SCR_MALLOC(num_nodes * sizeof(*per_id_chunks));
     node_list = SCR_MALLOC(num_nodes * sizeof(*node_list));
 
     for (int i = 0; i < scr_ranks_world / num_nodes; i++) {
@@ -683,6 +684,7 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
       scr_balancer_do_migrate = 0;
     }
 
+    scr_free(&schedule);
     scr_balance_timestamp_nb("ALGORITHM_END");
   }
 
