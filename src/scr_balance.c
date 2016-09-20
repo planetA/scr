@@ -30,6 +30,8 @@ static MPI_Datatype MPI_WORK_ITEM = 0;
 
 static const double scr_imbalance_threshold = 1.1;
 
+static pid_t *local_partners;
+
 /*
  * Comparison function for qsort to sort doubles in descending order.
  */
@@ -226,6 +228,20 @@ int scr_balance_init(void)
     sched_setaffinity(mypid, sizeof(myset), &myset);
   }
 
+
+  {
+    int local_size;
+    MPI_Comm_size(scr_comm_node, &local_size);
+
+    if (rank_node == 0) {
+      local_partners = SCR_MALLOC(local_size*sizeof(*local_partners));
+    }
+
+    pid_t mypid = getpid();
+    MPI_Gather(&mypid, sizeof(pid_t), MPI_BYTE,
+               local_partners, sizeof(pid_t), MPI_BYTE,
+               0, scr_comm_node);
+  }
   return 0;
 
  error:
@@ -240,6 +256,13 @@ int scr_balance_finalize_promise(void)
     scr_close(promise_file_name, promise_fd);
   }
 
+  {
+    int rank_node;
+    MPI_Comm_rank(scr_comm_node, &rank_node);
+    if (rank_node == 0) {
+      scr_free(&local_partners);
+    }
+  }
   /* we're no longer in an initialized state */
   scr_initialized = 0;
 
@@ -785,6 +808,113 @@ static double calculate_imbalance(double time)
   return imbalance;
 }
 
+double compute_imbalance(struct work_item *chunks, int n, int cpucount)
+{
+  double *schedule;
+
+  schedule = SCR_MALLOC(cpucount * sizeof(double));
+  for (int i = 0; i < cpucount; i ++)
+    schedule[i] = 0.;
+
+  for (int i = 0; i < n; i++)
+    schedule[chunks[i].node] += chunks[i].work;
+
+  double max = 0.;
+  double sum = 0.;
+
+  for (int i = 0; i < cpucount; i++) {
+    max = schedule[i] > max ? schedule[i] : max;
+    sum += schedule[i];
+  }
+
+  scr_free(&schedule);
+
+  return max/sum*n;
+}
+
+int local_balancing(double time)
+{
+  int cpucount = sysconf(_SC_NPROCESSORS_ONLN);
+  int local_result = 0;
+
+  int local_rank;
+  MPI_Comm_rank(scr_comm_node, &local_rank);
+
+  int local_size;
+  MPI_Comm_rank(scr_comm_node, &local_size);
+
+  cpu_set_t myset;
+  pid_t mypid = getpid();
+  sched_getaffinity(mypid, sizeof(myset), &myset);
+  int mycpu = -1;
+
+  for (int i = 0; i < CPU_SETSIZE; ++i) {
+    if (CPU_ISSET(i, &myset)) {
+      assert(mycpu == -1);
+      mycpu = i;
+    }
+  }
+
+  struct work_item my_chunk = {
+    .id = local_rank,
+    .node = mycpu,
+    .work = time
+  };
+
+  struct work_item *chunks, *new_chunks;
+
+  if (local_rank == 0) {
+    chunks = (struct work_item*)SCR_MALLOC(local_size * sizeof(*chunks));
+    new_chunks = (struct work_item*)SCR_MALLOC(local_size * sizeof(*new_chunks));
+  }
+
+  MPI_Gather(&my_chunk, sizeof(my_chunk), MPI_BYTE,
+             chunks, sizeof(my_chunk), MPI_BYTE,
+             0, scr_comm_node);
+
+  if (local_rank == 0) {
+    memcpy(new_chunks, chunks, local_size * sizeof(*chunks));
+
+    qsort(chunks, local_size, sizeof(*chunks), compare_work_item_work);
+
+    double old_imbalance = compute_imbalance(chunks, local_size, cpucount);
+
+    double *schedule = SCR_MALLOC(cpucount * sizeof(double));
+    for (int i = 0; i < local_size; i++) {
+      int min_time = 0;
+      for (int j = 0; j < cpucount; j++) {
+        if (schedule[j] < schedule[min_time])
+          min_time = j;
+      }
+
+      schedule[min_time] += chunks[i].work;
+      chunks[i].node = min_time;
+    }
+    scr_free(&schedule);
+
+    double new_imbalance = compute_imbalance(new_chunks, local_size, cpucount);
+
+    if (new_imbalance * 1.05 < old_imbalance) {
+      /* Update affinity */
+      for (int i = 0; i < local_size; i++) {
+        pid_t cur_pid = local_partners[chunks[i].id];
+        CPU_ZERO(&myset);
+        CPU_SET(chunks[i].node, &myset);
+        /* CPU_SET((rank_node + 1) % cpucount, &myset); */
+        /* CPU_SET((rank_node + cpucount - 1) % cpucount, &myset); */
+        sched_setaffinity(cur_pid, sizeof(myset), &myset);
+      }
+    }
+
+    scr_free(&chunks);
+    scr_free(&new_chunks);
+  }
+  int result;
+  MPI_Allreduce(&local_result, &result, 1, MPI_INT, MPI_LOR, scr_comm_world);
+
+  return result;
+}
+
 int scr_balance_need_checkpoint(int *flag)
 {
   if (!scr_balancer) {
@@ -837,9 +967,26 @@ int scr_balance_need_checkpoint(int *flag)
                 + (my_rusage.ru_utime.tv_usec - last_timeval.tv_usec) * USEC;
   double imbalance;
 
-  static char hostname[MPI_MAX_PROCESSOR_NAME];
-  int namelen;
-  MPI_Get_processor_name(hostname, &namelen);
+#if 0
+  double max_time;
+  MPI_Allreduce(&time, &max_time, 1, MPI_DOUBLE,
+                MPI_MAX, scr_comm_node);
+
+  if (max_time < 5) {
+    return SCR_SUCCESS;
+  } else if (max_time < 10) {
+    /* try to do decision locally */
+    if (local_balancing(time)) {
+      scr_balance_timestamp("LOCAL_DECISION");
+      /* If we rebalanced application, need to update counters */
+      last_step.tv_sec = cur_step.tv_sec;
+      last_step.tv_nsec = cur_step.tv_nsec;
+      last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
+      last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
+    }
+    return SCR_SUCCESS;
+  }
+#endif
 
   scr_balance_timestamp("DECISION_START");
 
@@ -850,6 +997,11 @@ int scr_balance_need_checkpoint(int *flag)
   if (scr_balancer_do_migrate) {
     *flag = 1;
   }
+
+  last_step.tv_sec = cur_step.tv_sec;
+  last_step.tv_nsec = cur_step.tv_nsec;
+  last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
+  last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
 
   return SCR_SUCCESS;
 }
