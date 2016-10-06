@@ -21,6 +21,8 @@
 #define MSEC 1000*USEC
 #define  SEC 1000*MSEC
 
+static int scr_balance_num_nodes = -1;
+
 static int promise_fd = -1;
 static char *promise_file_name = NULL;
 
@@ -242,6 +244,16 @@ int scr_balance_init(void)
                local_partners, sizeof(pid_t), MPI_BYTE,
                0, scr_comm_node);
   }
+
+
+  {
+    int ranks_across;
+    MPI_Comm_size(scr_comm_node_across, &ranks_across);
+    MPI_Allreduce(&ranks_across,
+                  &scr_balance_num_nodes, 1, MPI_INT, MPI_MAX,
+                  scr_comm_world);
+  }
+
   return 0;
 
  error:
@@ -331,7 +343,7 @@ static int compare_matching(const void *a, const void *b)
  * migrate to a node, where the rank is running. It is used by the
  * receive part of the migration operation.
  */
-void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes)
+void exchange_forward_and_backward(struct work_item *new_schedule)
 {
   struct work_item *cur_schedule;
   size_t rank_vector_size = scr_ranks_world * sizeof(int);
@@ -523,7 +535,7 @@ void exchange_forward_and_backward(struct work_item *new_schedule, int num_nodes
   }
 }
 
-int dump_schedule(struct work_item *chunks, int processes, int num_nodes)
+int dump_schedule(struct work_item *chunks, int processes)
 {
   int rank_node;
   MPI_Comm_rank(scr_comm_node, &rank_node);
@@ -535,8 +547,8 @@ int dump_schedule(struct work_item *chunks, int processes, int num_nodes)
 
     char *nodenames = NULL;
     if (rank_across == 0) {
-      nodenames = (char *)SCR_MALLOC(num_nodes * HOSTNAME_MAX);
-      memset(nodenames, 0, num_nodes * HOSTNAME_MAX);
+      nodenames = (char *)SCR_MALLOC(scr_balance_num_nodes * HOSTNAME_MAX);
+      memset(nodenames, 0, scr_balance_num_nodes * HOSTNAME_MAX);
     }
 
     char my_hostname[HOSTNAME_MAX];
@@ -594,7 +606,7 @@ cleanup:
   return 0;
 }
 
-static void propose_schedule(double time, int num_nodes, double measured_imbalance)
+static void propose_schedule(double time, double measured_imbalance)
 {
   MPI_Status status;
   MPI_Request request;
@@ -651,8 +663,8 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
   if (scr_my_rank_world == 0) {
     scr_balance_timestamp_nb("ALGORITHM_START");
 
-    schedule = SCR_MALLOC(num_nodes * sizeof(*schedule));
-    memset(schedule, 0, num_nodes * sizeof(*schedule));
+    schedule = SCR_MALLOC(scr_balance_num_nodes * sizeof(*schedule));
+    memset(schedule, 0, scr_balance_num_nodes * sizeof(*schedule));
 
     /* XXX: Locality hack */
     int *cur_schedule = SCR_MALLOC(scr_ranks_world * sizeof(*cur_schedule));
@@ -666,28 +678,29 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     struct work_item **per_id_chunks;
     int *node_list;
     int free_nodes;
-    per_id_chunks= SCR_MALLOC(num_nodes * sizeof(*per_id_chunks));
-    node_list = SCR_MALLOC(num_nodes * sizeof(*node_list));
+    per_id_chunks= SCR_MALLOC(scr_balance_num_nodes * sizeof(*per_id_chunks));
+    node_list = SCR_MALLOC(scr_balance_num_nodes * sizeof(*node_list));
 
-    for (int i = 0; i < scr_ranks_world / num_nodes; i++) {
+    for (int i = 0; i < scr_ranks_world / scr_balance_num_nodes; i++) {
       /* The idea is to work around somewhat broken XOR groups, where
          each node should be in a separate XOR group. */
 
       /* For each local id */
 
       /* Sort ranks with the same local ids */
-      int offset = scr_ranks_world / num_nodes;
-      for (int j = 0; j < num_nodes; j++)
+      int offset = scr_ranks_world / scr_balance_num_nodes;
+      for (int j = 0; j < scr_balance_num_nodes; j++)
         per_id_chunks[j] = &chunks[i+j*offset];
-      qsort(per_id_chunks, num_nodes, sizeof(*per_id_chunks), compare_work_item_ptr);
+      qsort(per_id_chunks, scr_balance_num_nodes,
+            sizeof(*per_id_chunks), compare_work_item_ptr);
 
       /* Initialize node occupation list */
-      free_nodes = num_nodes;
+      free_nodes = scr_balance_num_nodes;
       for (int j = 0; j < free_nodes; j++)
         node_list[j] = j;
 
       /* For each rank with specific local id */
-      for (int j = 0; j < num_nodes; j++) {
+      for (int j = 0; j < scr_balance_num_nodes; j++) {
         int min_node = 0;
         int native = 0;
         for (int k = 0; k < free_nodes; k++) {
@@ -732,13 +745,13 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
     double max = 0.;
     double avg = 0.;
     /* Compute predicted imbalance */
-    for (int i = 0; i < num_nodes; i ++) {
+    for (int i = 0; i < scr_balance_num_nodes; i ++) {
       if (schedule[i] > max) {
         max = schedule[i];
       }
       avg += schedule[i];
     }
-    avg /= num_nodes;
+    avg /= scr_balance_num_nodes;
     double imbalance = max / avg;
     scr_err("I predict imbalance of %f", imbalance);
 
@@ -757,12 +770,12 @@ static void propose_schedule(double time, int num_nodes, double measured_imbalan
 
   if (scr_balancer_do_migrate) {
     scr_balance_reddesc_set_chunks(chunks);
-    scr_balance_timestamp("FORWARD_START");
-    exchange_forward_and_backward(chunks, num_nodes);
-    scr_balance_timestamp("FORWARD_END");
-    scr_balance_timestamp("DUMP_START");
-    dump_schedule(chunks, scr_ranks_world, num_nodes);
-    scr_balance_timestamp("DUMP_END");
+    scr_balance_timestamp_nb("FORWARD_START");
+    exchange_forward_and_backward(chunks);
+    scr_balance_timestamp_nb("FORWARD_END");
+    scr_balance_timestamp_nb("DUMP_START");
+    dump_schedule(chunks, scr_ranks_world);
+    scr_balance_timestamp_nb("DUMP_END");
   } else if (scr_my_rank_world == 0) {
     /* Chunks are not needed anymore */
     scr_free(&chunks);
