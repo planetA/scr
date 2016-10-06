@@ -652,13 +652,9 @@ static void propose_schedule(double time, double measured_imbalance)
   my_item.id = scr_my_rank_world;
   my_item.node = -1;
   MPI_Aint lb, intex = 0;
-  MPI_Barrier(scr_comm_world);
   MPI_Type_get_extent(MPI_WORK_ITEM, &lb, &intex);
   MPI_Gather(&my_item, 1, MPI_WORK_ITEM, chunks, 1, MPI_WORK_ITEM, 0,
       scr_comm_world);
-  // TODO for Maksym: I want to use Igather here
-  //MPI_Igather(&my_item, 1, MPI_WORK_ITEM, chunks, 1, MPI_WORK_ITEM, 0,
-  //    scr_comm_world, &request);
 
   if (scr_my_rank_world == 0) {
     scr_balance_timestamp_nb("ALGORITHM_START");
