@@ -161,8 +161,13 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     }
   }
 
-  /* broadcast halt decision from rank 0 */
-  MPI_Bcast(&need_to_halt, 1, MPI_INT, 0, scr_comm_world);
+  if (halt_cond == SCR_TEST_AND_HALT) {
+    /* broadcast halt decision from rank 0 */
+    MPI_Bcast(&need_to_halt, 1, MPI_INT, 0, scr_comm_world);
+  } else {
+    /* If called from Need_checkpoint, and balancer is active broadcast
+     * decision made by the balancer asynchronously. */
+  }
 
   /* halt job if we need to, and flush latest checkpoint if needed */
   if (need_to_halt && halt_cond == SCR_TEST_AND_HALT) {
@@ -195,9 +200,6 @@ static int scr_bool_check_halt_and_decrement(int halt_cond, int decrement)
     }
     exit(0);
   }
-
-  /* broadcast after migration condition from rank 0 */
-  MPI_Bcast(&scr_after_migration, 1, MPI_INT, 0, scr_comm_world);
 
   return need_to_halt;
 }
@@ -1021,6 +1023,9 @@ int SCR_Init()
   /* exit right now if we need to halt */
   scr_bool_check_halt_and_decrement(SCR_TEST_AND_HALT, 0);
 
+  /* broadcast after migration condition from rank 0 */
+  MPI_Bcast(&scr_after_migration, 1, MPI_INT, 0, scr_comm_world);
+
   /* if the code is restarting from the parallel file system,
    * disable fetch and enable flush_on_restart */
   if (scr_global_restart) {
@@ -1362,12 +1367,14 @@ int SCR_Need_checkpoint(int* flag)
     }
   }
 
+  /* If we have balancer we use non-blocking operation to broadcast
+   * the decision */
   if (scr_balancer) {
     scr_balance_need_checkpoint(flag);
+  } else {
+    /* rank 0 broadcasts the decision */
+    MPI_Bcast(flag, 1, MPI_INT, 0, scr_comm_world);
   }
-
-  /* rank 0 broadcasts the decision */
-  MPI_Bcast(flag, 1, MPI_INT, 0, scr_comm_world);
 
   return SCR_SUCCESS;
 }

@@ -30,6 +30,11 @@ static struct timespec last_step;
 static struct timeval last_timeval;
 static MPI_Datatype MPI_WORK_ITEM = 0;
 
+static MPI_Comm scr_comm_lb;
+static MPI_Comm scr_comm_lb_block;
+static MPI_Comm scr_comm_lb_node;
+static MPI_Comm scr_comm_lb_node_across;
+
 static const double scr_imbalance_threshold = 1.1;
 
 static pid_t *local_partners;
@@ -85,6 +90,205 @@ static int compare_int(const void *a, const void *b)
   if (*aa > *bb) return 1;
   if (*bb > *aa) return 0;
   return 0;
+}
+
+
+/* Queue of timestamp items */
+
+enum ts_state {
+  TS_NEW,
+  TS_WAIT_LOCAL,
+  TS_WAIT_GLOBAL,
+  TS_WAIT_IMBALANCE,
+  TS_READY
+};
+
+struct ts_item {
+  STAILQ_ENTRY(ts_item) items;
+
+  int state;
+  int num_req;
+  double time;
+  int halt;
+
+  double sum;
+  double max;
+  double avg;
+  double imbalance;
+
+  long long int msec;
+
+  int epoch;
+  MPI_Status status[4];
+  MPI_Request request[4];
+};
+
+STAILQ_HEAD(, ts_item) scr_balance_ts_head;
+
+static int ts_epoch = 0;
+static int ts_len = 0;
+
+static void ts_create(double time, int need_to_halt)
+{
+  static int skip = 5;
+
+  ts_epoch += 1;
+
+  if ((ts_epoch % skip))
+    return;
+
+  struct ts_item *ts = calloc(1, sizeof(*ts));
+
+  STAILQ_INSERT_TAIL(&scr_balance_ts_head, ts, items);
+
+  ts->state = TS_NEW;
+  ts->time = time;
+  ts->halt = need_to_halt;
+
+  ts->epoch = ts_epoch;
+  ts_len ++;
+
+  struct timespec cur_step;
+  clock_gettime(CLOCK_REALTIME, &cur_step);
+  ts->msec = cur_step.tv_sec * 1000 + cur_step.tv_nsec / 1000000;
+
+  if (!scr_my_rank_world) {
+    printf("SCR_TS_TOKEN: create time %llu len %d\n", ts->msec, ts_len);
+  }
+
+  /* printf("Create  %d task %d state %d req %d addr %p\n", */
+  /*        scr_my_rank_world, */
+  /*        ts->epoch, ts->state, ts->num_req, ts); */
+}
+
+static void ts_action(struct ts_item *ts, int block)
+{
+  int flag;
+  int rank_node;
+  MPI_Comm_rank(scr_comm_lb_node, &rank_node);
+
+  /* printf("Examine %d:%d task %d state %d req %d addr %p block %d\n", */
+  /*        scr_my_rank_world, __LINE__, */
+  /*        ts->epoch, ts->state, ts->num_req, ts, block); */
+  switch(ts->state) {
+    case TS_NEW:
+      ts->num_req = 0;
+
+      /* printf("Examine %d:%d task %d state %d req %d addr %p block %d\n", */
+      /*        scr_my_rank_world, __LINE__, */
+      /*        ts->epoch, ts->state, ts->num_req, ts, block); */
+      MPI_Ireduce(&ts->time, &ts->sum, 1, MPI_DOUBLE, MPI_SUM,
+                  0, scr_comm_lb_node, &ts->request[ts->num_req++]);
+      MPI_Ibcast(&ts->halt, 1, MPI_INT,
+                 0, scr_comm_lb, &ts->request[ts->num_req++]);
+      /* MPI_Reduce(&ts->time, &ts->sum, 1, MPI_DOUBLE, MPI_SUM, */
+      /*             0, scr_comm_node); */
+
+      ts->state = TS_WAIT_LOCAL;
+      /* Fall through */
+
+    case TS_WAIT_LOCAL:
+
+      /* printf("Examine %d:%d task %d state %d req %d addr %p block %d\n", */
+      /*        scr_my_rank_world, __LINE__, */
+      /*        ts->epoch, ts->state, ts->num_req, ts, block); */
+      if (block) {
+        MPI_Waitall(ts->num_req, &ts->request[0], &ts->status[0]);
+      } else {
+        MPI_Testall(ts->num_req, &ts->request[0], &flag, &ts->status[0]);
+        if (!flag)
+          break;
+      }
+
+      ts->num_req = 0;
+
+      if (ts->halt) {
+        ts->state = TS_READY;
+        break;
+      }
+
+      if (rank_node == 0) {
+
+        MPI_Ireduce(&ts->sum, &ts->max, 1, MPI_DOUBLE, MPI_MAX,
+                    0, scr_comm_lb_node_across,
+                    &ts->request[ts->num_req++]);
+        MPI_Ireduce(&ts->sum, &ts->avg, 1, MPI_DOUBLE, MPI_SUM,
+                    0, scr_comm_lb_node_across,
+                    &ts->request[ts->num_req++]);
+        /* MPI_Reduce(&ts->sum, &ts->max, 1, MPI_DOUBLE, MPI_MAX, */
+        /*             0, scr_comm_lb_node_across); */
+        /* MPI_Reduce(&ts->sum, &ts->avg, 1, MPI_DOUBLE, MPI_SUM, */
+        /*             0, scr_comm_lb_node_across); */
+      }
+
+      ts->state = TS_WAIT_GLOBAL;
+
+      /* Fall through */
+    case TS_WAIT_GLOBAL:
+      if (rank_node == 0) {
+        if (block) {
+          MPI_Waitall(ts->num_req, &ts->request[0], &ts->status[0]);
+        } else {
+          MPI_Testall(ts->num_req, &ts->request[0], &flag, &ts->status[0]);
+          if (!flag)
+            break;
+        }
+        /* MPI_Testall(ts->num_req, &ts->request[0], &flag, &ts->status[0]); */
+        /* if (!flag) */
+        /*   break; */
+
+        /* MPI_Waitall(ts->num_req, &ts->request[0], &ts->status[0]); */
+
+        ts->num_req = 0;
+
+        ts->avg /= scr_balance_num_nodes;
+
+        ts->imbalance = ts->max / ts->avg;
+        // scr_err("I'm leader of node %d and I my sum is %f", node_id, sum);
+        if (scr_my_rank_world == 0) {
+          scr_err("I see imbalance of %f", ts->imbalance);
+        }
+      }
+
+      /* printf("Global  %d task %d state %d req %d addr %p rank_node %d\n", */
+      /*        scr_my_rank_world, */
+      /*        ts->epoch, ts->state, ts->num_req, ts, rank_node); */
+
+      assert(ts->num_req == 0);
+      static int last_epoch = 0;
+      assert(last_epoch < ts->epoch);
+      last_epoch = ts->epoch;
+      MPI_Ibcast(&ts->imbalance, 1, MPI_DOUBLE, 0, scr_comm_lb,
+                 &ts->request[ts->num_req++]);
+      /* MPI_Bcast(&ts->imbalance, 1, MPI_DOUBLE, 0, scr_comm_world); */
+
+      ts->state = TS_WAIT_IMBALANCE;
+
+      /* Fall through */
+    case TS_WAIT_IMBALANCE:
+      if (block) {
+        MPI_Waitall(ts->num_req, &ts->request[0], &ts->status[0]);
+      } else {
+        MPI_Testall(ts->num_req, &ts->request[0], &flag, &ts->status[0]);
+        if (!flag)
+          break;
+      }
+      /* MPI_Testall(ts->num_req, &ts->request[0], &flag, &ts->status[0]); */
+      /* if (!flag) */
+      /*   break; */
+
+      /* printf("Examine %d task %d state %d req %d addr %p\n", */
+      /*        scr_my_rank_world, */
+      /*        ts->epoch, ts->state, */
+      /*        ts->num_req, ts); */
+      /* MPI_Waitall(ts->num_req, &ts->request[0], &ts->status[0]); */
+
+      ts->state = TS_READY;
+      /* Fall through */
+
+    case TS_READY:
+      break;
+  }
 }
 
 static scr_reddesc_migration *scr_balance_reddesc_migration()
@@ -252,6 +456,20 @@ int scr_balance_init(void)
     MPI_Allreduce(&ranks_across,
                   &scr_balance_num_nodes, 1, MPI_INT, MPI_MAX,
                   scr_comm_world);
+  }
+
+  {
+    /* Init timestamp list */
+    STAILQ_INIT(&scr_balance_ts_head);
+
+    MPI_Comm_dup(scr_comm_world, &scr_comm_lb);
+    MPI_Comm_set_name(scr_comm_lb, "SCR:LB World");
+    MPI_Comm_dup(scr_comm_world, &scr_comm_lb_block);
+    MPI_Comm_set_name(scr_comm_lb_block, "SCR:LB World: Block");
+    MPI_Comm_dup(scr_comm_node, &scr_comm_lb_node);
+    MPI_Comm_set_name(scr_comm_lb_node, "SCR:LB Node");
+    MPI_Comm_dup(scr_comm_node_across, &scr_comm_lb_node_across);
+    MPI_Comm_set_name(scr_comm_lb_node_across, "SCR:LB Node across");
   }
 
   return 0;
@@ -778,43 +996,110 @@ static void propose_schedule(double time, double measured_imbalance)
   }
 }
 
-static double calculate_imbalance(double time)
+static int calculate_imbalance(double time, int *flag)
 {
   double max, avg, sum;
   double imbalance;
   int rank_node;
+  MPI_Comm_rank(scr_comm_lb_node, &rank_node);
 
-  MPI_Comm_rank(scr_comm_node, &rank_node);
-  MPI_Reduce(&time, &sum, 1, MPI_DOUBLE, MPI_SUM, 0, scr_comm_node);
+  static int want_halt = 0;
+  static int halt;
 
-  int ranks_across;
-  MPI_Comm_size(scr_comm_node_across, &ranks_across);
+  static int want_block = 0;
+  static int block_epoch = 0;
+  static int block = 0;
 
-  int num_nodes;
-  MPI_Allreduce(&ranks_across, &num_nodes, 1, MPI_INT, MPI_MAX, scr_comm_world);
 
-  if (rank_node == 0) {
+  static MPI_Request want_block_req;
+  static int active_want_block = 0;
 
-    int num_req = 0;
-    MPI_Status status[2];
-    MPI_Request request[2];
-
-    MPI_Ireduce(&sum, &max, 1, MPI_DOUBLE, MPI_MAX, 0, scr_comm_node_across, &request[num_req++]);
-    MPI_Ireduce(&sum, &avg, 1, MPI_DOUBLE, MPI_SUM, 0, scr_comm_node_across, &request[num_req++]);
-    MPI_Waitall(num_req, request, status);
-
-    avg /= num_nodes;
-
-    imbalance = max / avg;
-   // scr_err("I'm leader of node %d and I my sum is %f", node_id, sum);
-    if (scr_my_rank_world == 0) {
-      scr_err("I see imbalance of %f", max/avg);
-    }
+  if (*flag) {
+    want_halt = 1;
   }
 
-  propose_schedule(time, num_nodes, imbalance);
+  ts_create(time, want_halt);
 
-  return imbalance;
+  if (active_want_block) {
+    int flag;
+    MPI_Test(&want_block_req, &flag, MPI_STATUS_IGNORE);
+    if (flag) {
+      active_want_block = 0;
+      block = !!block_epoch;
+    }
+  }
+  if (!active_want_block && !block) {
+    if (want_block)
+      want_block = ts_epoch + 5;
+    MPI_Iallreduce(&want_block, &block_epoch, 1, MPI_INT, MPI_MAX,
+                   scr_comm_lb_block, &want_block_req);
+    active_want_block = 1;
+  }
+
+  struct ts_item *tmp, *cur = STAILQ_FIRST(&scr_balance_ts_head);;
+  while (!STAILQ_EMPTY(&scr_balance_ts_head) && cur) {
+
+    imbalance = cur->imbalance;
+
+    /* printf("Action  %d task %d state %d req %d addr %p block %d\n", */
+    /*        scr_my_rank_world, */
+    /*        cur->epoch, cur->state, cur->num_req, cur, block_epoch); */
+    ts_action(cur, block && (block_epoch < ts_epoch + 1));
+
+    /* If previous action is not finished yet, we need to break,
+     * to ensure order of the operations in communicators. */
+    if (cur->state != TS_READY) {
+      *flag = 0;
+      break;
+    }
+
+
+    if (cur->halt) {
+      halt = 1;
+    }
+
+    if (cur->halt || (cur->imbalance > scr_imbalance_threshold)) {
+      want_block = 1;
+    }
+
+    tmp = STAILQ_NEXT(cur, items);
+    STAILQ_REMOVE(&scr_balance_ts_head, cur, ts_item, items);
+    ts_len-=1;
+    if (!scr_my_rank_world) {
+      printf("SCR_TS_TOKEN: time %llu len %d\n", cur->msec, ts_len);
+    }
+    free(cur);
+    cur = tmp;
+  }
+
+  if (halt) {
+    *flag = 1;
+    return halt;
+  }
+
+  if (block && !STAILQ_EMPTY(&scr_balance_ts_head)) {
+
+    while (!STAILQ_EMPTY(&scr_balance_ts_head)) {
+      cur = STAILQ_FIRST(&scr_balance_ts_head);
+
+      ts_action(cur, block);
+
+      imbalance = cur->imbalance;
+      STAILQ_REMOVE_HEAD(&scr_balance_ts_head, items);
+      ts_len-=1;
+      if (!scr_my_rank_world) {
+        printf("SCR_TS_TOKEN: time %llu len %d\n", cur->msec, ts_len);
+      }
+      free(cur);
+    }
+
+    /* MPI_Bcast(&imbalance, 1, MPI_DOUBLE, 0, scr_comm_world); */
+    propose_schedule(time, imbalance);
+    if (scr_balancer_do_migrate)
+      *flag = 1;
+  }
+
+  return scr_balancer_do_migrate;
 }
 
 double compute_imbalance(struct work_item *chunks, int n, int cpucount)
