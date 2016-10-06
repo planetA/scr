@@ -1240,7 +1240,7 @@ int scr_balance_need_checkpoint(int *flag)
   getrusage(RUSAGE_SELF, &my_rusage);
   clock_gettime(CLOCK_MONOTONIC, &cur_step);
 
-  scr_balance_timestamp("NEED_CHECKPOINT_ENTER");
+  scr_balance_timestamp_nb("NEED_CHECKPOINT_ENTER");
 
   if (last_step.tv_sec == 0 && last_step.tv_nsec == 0) {
     /* Making first time step, need previous record */
@@ -1271,7 +1271,7 @@ int scr_balance_need_checkpoint(int *flag)
   } else if (max_time < 10) {
     /* try to do decision locally */
     if (local_balancing(time)) {
-      scr_balance_timestamp("LOCAL_DECISION");
+      scr_balance_timestamp_nb("LOCAL_DECISION");
       /* If we rebalanced application, need to update counters */
       last_step.tv_sec = cur_step.tv_sec;
       last_step.tv_nsec = cur_step.tv_nsec;
@@ -1282,11 +1282,11 @@ int scr_balance_need_checkpoint(int *flag)
   }
 #endif
 
-  scr_balance_timestamp("DECISION_START");
+  scr_balance_timestamp_nb("DECISION_START");
 
   imbalance = calculate_imbalance(time);
 
-  scr_balance_timestamp("DECISION_END");
+  scr_balance_timestamp_nb("DECISION_END");
 
   if (scr_balancer_do_migrate) {
     *flag = 1;
@@ -1315,7 +1315,7 @@ int scr_balance_complete_checkpoint(int valid)
   last_timeval.tv_sec = my_rusage.ru_utime.tv_sec;
   last_timeval.tv_usec = my_rusage.ru_utime.tv_usec;
 
-  scr_balance_timestamp("BALANCE_COMPLETE_CHECKPOINT");
+  scr_balance_timestamp_nb("BALANCE_COMPLETE_CHECKPOINT");
 
   return SCR_SUCCESS;
 }
